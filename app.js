@@ -46,10 +46,10 @@ const FACE_CONNECTIONS = {
     [300, 293], [293, 334], [334, 296], [296, 336], [336, 285], [285, 295], 
     [295, 282], [282, 283], [283, 276]
   ],
-  // Updated nose to stop much higher above the lip
+  // Updated nose to remove connection to lips
   nose: [
     [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19], 
-    [19, 94], [94, 2], [2, 164], [164, 0]  
+    [19, 94], [94, 2], [2, 164]  // Removed the [164, 0] connection that went to lips
   ],
   // Lips remain the same
   lipsOuter: [
