@@ -69,21 +69,70 @@ function clearDetections() {
   overlay.innerHTML = '';
 }
 
+let lastDetectionTime = null;
+let detectionCount = 0;
+
+// Add this function near other UI-related functions
+function createDebugPanel() {
+  const panel = document.createElement('div');
+  panel.className = 'debug-panel';
+  panel.innerHTML = `
+    <button class="debug-panel-toggle">⚙️</button>
+    <div class="debug-panel-content">
+      <h3>Debug Controls</h3>
+      <button class="debug-button" id="retryDetection">Retry Object Detection</button>
+      <div class="debug-info">
+        <p>Last Detection: <span id="lastDetectionTime">Never</span></p>
+        <p>Objects Detected: <span id="detectionCount">0</span></p>
+        <p>Detection Status: <span id="detectionStatus">Idle</span></p>
+      </div>
+    </div>
+  `;
+  
+  document.body.appendChild(panel);
+
+  // Toggle panel
+  const toggleBtn = panel.querySelector('.debug-panel-toggle');
+  toggleBtn.addEventListener('click', () => {
+    panel.classList.toggle('collapsed');
+  });
+
+  // Retry detection button
+  const retryBtn = panel.querySelector('#retryDetection');
+  retryBtn.addEventListener('click', async () => {
+    const currentBg = document.querySelector('[id^="background-image-"].loaded');
+    if (currentBg && isObjectDetectionEnabled) {
+      await detectObjects(currentBg);
+    }
+  });
+
+  // Initialize collapsed
+  panel.classList.add('collapsed');
+}
+
 async function detectObjects(imageElement) {
   if (!objectDetector) return;
 
   try {
+    const statusEl = document.getElementById('detectionStatus');
+    const timeEl = document.getElementById('lastDetectionTime');
+    const countEl = document.getElementById('detectionCount');
+    
+    statusEl.textContent = 'Detecting...';
     showLoadingIndicator();
+    
     const output = await objectDetector(imageElement);
-
+    
     clearDetections();
     const overlay = document.getElementById('detection-overlay');
 
+    detectionCount = output.length;
+    lastDetectionTime = new Date().toLocaleTimeString();
+    
     output.forEach(detection => {
       const { box, label, score } = detection;
       const { xmax, xmin, ymax, ymin } = box;
 
-      // Convert normalized coordinates to pixels
       const imgWidth = imageElement.offsetWidth;
       const imgHeight = imageElement.offsetHeight;
 
@@ -92,7 +141,6 @@ async function detectObjects(imageElement) {
       const width = (xmax - xmin) * imgWidth;
       const height = (ymax - ymin) * imgHeight;
 
-      // Create detection box
       const detectionBox = document.createElement('div');
       detectionBox.className = 'detection-box';
       detectionBox.style.left = `${left}px`;
@@ -100,7 +148,6 @@ async function detectObjects(imageElement) {
       detectionBox.style.width = `${width}px`;
       detectionBox.style.height = `${height}px`;
 
-      // Create label
       const labelElement = document.createElement('div');
       labelElement.className = 'detection-label';
       labelElement.textContent = `${label} (${Math.round(score * 100)}%)`;
@@ -108,8 +155,14 @@ async function detectObjects(imageElement) {
 
       overlay.appendChild(detectionBox);
     });
+
+    // Update debug info
+    timeEl.textContent = lastDetectionTime;
+    countEl.textContent = detectionCount;
+    statusEl.textContent = 'Complete';
   } catch (error) {
     console.error('Error detecting objects:', error);
+    document.getElementById('detectionStatus').textContent = 'Error';
   } finally {
     hideLoadingIndicator();
   }
@@ -153,7 +206,8 @@ startButton.addEventListener('click', async () => {
     await initializeObjectDetector();
   }
 
-  // Handle background prompt if provided
+  createDebugPanel();
+
   if (backgroundPromptInput.value.trim()) {
     loadBackgroundImage(backgroundPromptInput.value.trim());
   }

@@ -164,3 +164,65 @@ h2 {
   font-size: 14px;
   z-index: 1000;
 }
+
+.debug-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 8px;
+  color: #fff;
+  padding: 15px;
+  z-index: 1000;
+  min-width: 200px;
+  transition: transform 0.3s ease;
+}
+
+.debug-panel.collapsed {
+  transform: translateX(calc(100% - 40px));
+}
+
+.debug-panel-toggle {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  border-radius: 4px 0 0 4px;
+  width: 30px;
+  height: 60px;
+}
+
+.debug-panel-content {
+  margin-left: 20px;
+}
+
+.debug-button {
+  background: #333;
+  border: 1px solid #555;
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin: 5px 0;
+  width: 100%;
+}
+
+.debug-button:hover {
+  background: #444;
+}
+
+.debug-info {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.debug-panel h3 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+}
