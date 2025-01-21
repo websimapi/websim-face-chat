@@ -1,14 +1,17 @@
 class Game {
-  constructor(canvas, faceMeshData) {
+  constructor(canvas, faceMeshData, isMultiplayer = false, room = null) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.faceMeshData = faceMeshData;
     this.objects = [];
     this.score = 0;
+    this.globalScore = 0;
     this.lastSpawnTime = 0;
     this.spawnInterval = 2000;
     this.gameActive = false;
     this.scoreElement = document.getElementById('score');
+    this.isMultiplayer = isMultiplayer;
+    this.room = room;
     
     // Add mouth state tracking
     this.mouthWasClosed = true;
@@ -49,12 +52,155 @@ class Game {
     // Add pause state
     this.isPaused = false;
     
-    // Add pause screen event listeners
-    window.addEventListener('blur', () => this.pause());
-    window.addEventListener('focus', () => this.unpause());
+    // Handle multiplayer sync
+    if (this.isMultiplayer && this.room) {
+      this.setupMultiplayerSync();
+    }
     
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+  
+  setupMultiplayerSync() {
+    // Sync game objects
+    this.room.onmessage = (event) => {
+      const data = event.data;
+      if (data.type === 'gameObjectSpawned') {
+        this.addSyncedObject(data.object);
+      } else if (data.type === 'objectEaten') {
+        this.handleSyncedObjectEaten(data);
+      }
+    };
+    
+    // Subscribe to score updates
+    this.room.collection('game_score').subscribe((scores) => {
+      if (scores.length > 0) {
+        this.globalScore = scores[0].score;
+        this.updateScore();
+      }
+    });
+  }
+  
+  async updateGlobalScore(points) {
+    if (this.isMultiplayer) {
+      const scores = await this.room.collection('game_score').getList();
+      if (scores.length === 0) {
+        await this.room.collection('game_score').create({ score: points });
+      } else {
+        await this.room.collection('game_score').update(scores[0].id, {
+          score: scores[0].score + points
+        });
+      }
+    }
+  }
+  
+  spawnObject() {
+    const object = this.createRandomObject();
+    
+    if (this.isMultiplayer) {
+      this.room.send({
+        type: 'gameObjectSpawned',
+        object: object
+      });
+    }
+    
+    this.objects.push(object);
+  }
+  
+  createRandomObject() {
+    const x = Math.random() * (this.canvas.width - 30) + 15;
+    
+    // Select item type based on probabilities
+    const rand = Math.random();
+    let cumProb = 0;
+    let selectedType = this.itemTypes[0];
+    
+    for (const type of this.itemTypes) {
+      cumProb += type.probability;
+      if (rand <= cumProb) {
+        selectedType = type;
+        break;
+      }
+    }
+    
+    return {
+      x,
+      y: -20,
+      type: selectedType.type,
+      shape: selectedType.shape,
+      color: selectedType.color,
+      points: selectedType.points,
+      radius: selectedType.radius,
+      speed: Math.random() * 2 + 2,
+      canBeEaten: true,
+      eatingProgress: 0,
+      rotation: 0,
+      rotates: selectedType.rotates,
+      bounces: selectedType.bounces,
+      dx: (Math.random() - 0.5) * 4,
+      rotationSpeed: Math.random() * 0.1 + 0.05,
+      id: Math.random().toString(36).substr(2, 9)
+    };
+  }
+  
+  addSyncedObject(object) {
+    if (!this.objects.find(obj => obj.id === object.id)) {
+      this.objects.push(object);
+    }
+  }
+  
+  handleSyncedObjectEaten(data) {
+    const index = this.objects.findIndex(obj => obj.id === data.objectId);
+    if (index !== -1) {
+      this.objects.splice(index, 1);
+      this.globalScore += data.points;
+      this.updateScore();
+    }
+  }
+  
+  async checkMouthCollision(object) {
+    if (!this.faceMeshData.mouthCenter || !object.canBeEaten) return false;
+    
+    const isMouthOpen = this.faceMeshData.mouthOpen;
+    const distance = Math.hypot(
+      object.x - this.faceMeshData.mouthCenter.x,
+      object.y - this.faceMeshData.mouthCenter.y
+    );
+    
+    const isInMouthArea = distance < object.radius + 20;
+    
+    if (isInMouthArea && isMouthOpen) {
+      object.eatingProgress = Math.min(object.eatingProgress + 0.1, 1);
+      return false;
+    }
+    
+    if (isInMouthArea && !isMouthOpen && object.eatingProgress > 0.5) {
+      if (this.isMultiplayer) {
+        this.room.send({
+          type: 'objectEaten',
+          objectId: object.id,
+          points: object.points
+        });
+        await this.updateGlobalScore(object.points);
+      } else {
+        this.score += object.points;
+      }
+      return true;
+    }
+    
+    if (!isInMouthArea) {
+      object.eatingProgress = 0;
+    }
+    
+    return false;
+  }
+  
+  updateScore() {
+    if (this.isMultiplayer) {
+      this.scoreElement.textContent = `Global Score: ${this.globalScore}`;
+    } else {
+      this.scoreElement.textContent = `Score: ${this.score}`;
+    }
   }
   
   resize() {
@@ -77,8 +223,31 @@ class Game {
     this.scoreElement.style.display = 'none';
   }
   
-  updateScore() {
-    this.scoreElement.textContent = `Score: ${this.score}`;
+  pause() {
+    if (this.gameActive && !this.isMultiplayer) {
+      this.isPaused = true;
+      this.drawPauseScreen();
+    }
+  }
+  
+  unpause() {
+    if (this.gameActive && this.isPaused) {
+      this.isPaused = false;
+      this.gameLoop();
+    }
+  }
+  
+  drawPauseScreen() {
+    this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    this.ctx.fillStyle = '#FFFFFF';
+    this.ctx.font = '48px Arial';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2);
+    this.ctx.font = '24px Arial';
+    this.ctx.fillText('Click to resume', this.canvas.width / 2, this.canvas.height / 2 + 50);
   }
   
   drawBurger(x, y, radius) {
@@ -158,71 +327,6 @@ class Game {
     this.ctx.restore();
   }
 
-  spawnObject() {
-    const x = Math.random() * (this.canvas.width - 30) + 15;
-    
-    // Select item type based on probabilities
-    const rand = Math.random();
-    let cumProb = 0;
-    let selectedType = this.itemTypes[0];
-    
-    for (const type of this.itemTypes) {
-      cumProb += type.probability;
-      if (rand <= cumProb) {
-        selectedType = type;
-        break;
-      }
-    }
-    
-    this.objects.push({
-      x,
-      y: -20,
-      type: selectedType.type,
-      shape: selectedType.shape,
-      color: selectedType.color,
-      points: selectedType.points,
-      radius: selectedType.radius,
-      speed: Math.random() * 2 + 2,
-      canBeEaten: true,
-      eatingProgress: 0,
-      rotation: 0,
-      rotates: selectedType.rotates,
-      bounces: selectedType.bounces,
-      dx: (Math.random() - 0.5) * 4, // Horizontal velocity for bouncing
-      rotationSpeed: Math.random() * 0.1 + 0.05 // Rotation speed
-    });
-  }
-  
-  checkMouthCollision(object) {
-    if (!this.faceMeshData.mouthCenter || !object.canBeEaten) return false;
-    
-    const isMouthOpen = this.faceMeshData.mouthOpen;
-    const distance = Math.hypot(
-      object.x - this.faceMeshData.mouthCenter.x,
-      object.y - this.faceMeshData.mouthCenter.y
-    );
-    
-    const isInMouthArea = distance < object.radius + 20;
-    
-    // Start eating progress when mouth is open and object is in mouth area
-    if (isInMouthArea && isMouthOpen) {
-      object.eatingProgress = Math.min(object.eatingProgress + 0.1, 1);
-      return false;
-    }
-    
-    // Complete eating when mouth closes with sufficient eating progress
-    if (isInMouthArea && !isMouthOpen && object.eatingProgress > 0.5) {
-      return true;
-    }
-    
-    // Reset eating progress if object leaves mouth area
-    if (!isInMouthArea) {
-      object.eatingProgress = 0;
-    }
-    
-    return false;
-  }
-  
   draw() {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     
@@ -283,41 +387,21 @@ class Game {
       
       if (this.checkMouthCollision(obj)) {
         obj.canBeEaten = false; 
-        this.score += obj.points;
-        this.updateScore();
+        if (!this.isMultiplayer) {
+          this.score += obj.points;
+          this.updateScore();
+        }
         this.objects.splice(i, 1);
       } else if (obj.y > this.canvas.height + obj.radius) {
-        if (obj.type === 'good') this.score -= 5;
-        this.updateScore();
+        if (obj.type === 'good' && !this.isMultiplayer) {
+          this.score -= 5;
+          this.updateScore();
+        }
         this.objects.splice(i, 1);
       }
     }
   }
 
-  pause() {
-    if (this.gameActive) {
-      this.isPaused = true;
-      // Draw pause screen
-      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-      
-      this.ctx.fillStyle = '#FFFFFF';
-      this.ctx.font = '48px Arial';
-      this.ctx.textAlign = 'center';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2);
-      this.ctx.font = '24px Arial';
-      this.ctx.fillText('Click to resume', this.canvas.width / 2, this.canvas.height / 2 + 50);
-    }
-  }
-  
-  unpause() {
-    if (this.gameActive && this.isPaused) {
-      this.isPaused = false;
-      this.gameLoop();
-    }
-  }
-  
   gameLoop = () => {
     if (!this.gameActive || this.isPaused) return;
     
@@ -325,6 +409,9 @@ class Game {
     this.draw();
     requestAnimationFrame(this.gameLoop);
   }
+
+  window.addEventListener('blur', () => this.pause());
+  window.addEventListener('focus', () => this.unpause());
 }
 
 window.Game = Game;

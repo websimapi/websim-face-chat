@@ -23,6 +23,9 @@ const startButton = document.getElementById('startButton');
 
 // Add gameMode checkbox reference
 const gameModeCheckbox = document.getElementById('gameMode');
+const multiplayerModeCheckbox = document.getElementById('multiplayerMode');
+let room = null;
+let isMultiplayer = false;
 let game = null;
 
 // Settings event listeners
@@ -57,7 +60,7 @@ function loadBackgroundImage(prompt) {
   document.body.insertBefore(backgroundImg, document.body.firstChild);
 }
 
-startButton.addEventListener('click', () => {
+startButton.addEventListener('click', async () => {
   settingsModal.style.display = 'none';
   container.style.display = 'block';
   
@@ -65,38 +68,94 @@ startButton.addEventListener('click', () => {
     loadBackgroundImage(backgroundPromptInput.value.trim());
   }
   
-  // Initialize game if game mode is enabled
+  isMultiplayer = multiplayerModeCheckbox.checked;
+  
+  if (isMultiplayer) {
+    room = new WebsimSocket();
+    setupMultiplayer();
+  }
+  
   if (gameModeCheckbox.checked) {
     const gameCanvas = document.getElementById('gameCanvas');
     game = new Game(gameCanvas, {
       mouthOpen: false,
       mouthCenter: { x: 0, y: 0 }
-    });
+    }, isMultiplayer, room);
     game.start();
   }
   
   camera.start();
 });
 
-let previousLandmarks = null;
-const smoothingFactor = 0.5;
-
-// Adjust canvas size to match viewport
-function onResize() {
-  canvasElement.width = window.innerWidth;
-  canvasElement.height = window.innerHeight;
-}
-window.addEventListener('resize', onResize);
-onResize();
-
-function smoothLandmarks(currentLandmarks, previousLandmarks) {
-  if (!previousLandmarks) return currentLandmarks;
+function setupMultiplayer() {
+  const playerList = document.getElementById('playerList');
   
-  return currentLandmarks.map((landmark, i) => ({
-    x: previousLandmarks[i].x + (landmark.x - previousLandmarks[i].x) * smoothingFactor,
-    y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
-    z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * smoothingFactor
-  }));
+  // Update player list when peers change
+  room.party.subscribe((peers) => {
+    playerList.innerHTML = '';
+    for (const clientId in peers) {
+      const { avatarUrl, username } = peers[clientId];
+      const playerItem = document.createElement('div');
+      playerItem.className = 'player-item';
+      playerItem.innerHTML = `
+        <img class="player-avatar" src="${avatarUrl}" alt="${username}">
+        <span>${username}</span>
+      `;
+      playerList.appendChild(playerItem);
+    }
+  });
+
+  // Handle face mesh data sync
+  room.onmessage = (event) => {
+    const data = event.data;
+    switch (data.type) {
+      case 'faceMeshUpdate':
+        if (data.clientId !== room.party.client.id) {
+          updateRemoteFaceMesh(data);
+        }
+        break;
+      case 'scoreUpdate':
+        if (game) {
+          game.updateGlobalScore(data.score);
+        }
+        break;
+    }
+  };
+}
+
+function updateRemoteFaceMesh(data) {
+  // Draw remote player's face mesh on the canvas
+  const remoteCanvas = document.createElement('canvas');
+  remoteCanvas.width = canvasElement.width;
+  remoteCanvas.height = canvasElement.height;
+  const remoteCtx = remoteCanvas.getContext('2d');
+  
+  // Draw face mesh using the received landmarks
+  drawFaceMeshOnContext(remoteCtx, data.landmarks);
+  
+  // Composite the remote face mesh onto the main canvas
+  canvasCtx.globalAlpha = 0.5;
+  canvasCtx.drawImage(remoteCanvas, 0, 0);
+  canvasCtx.globalAlpha = 1.0;
+}
+
+function drawFaceMeshOnContext(ctx, landmarks) {
+  ctx.lineWidth = settings.lineWidth;
+  ctx.strokeStyle = settings.lineColor;
+  ctx.shadowColor = settings.lineColor;
+  ctx.shadowBlur = settings.glowIntensity;
+  
+  // Draw face outline
+  drawConnectors(landmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth);
+
+  // Draw facial features
+  drawFacialFeature(landmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth);
+  drawFacialFeature(landmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth);
+  drawFacialFeature(landmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth);
+  drawFacialFeature(landmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth);
+  drawFacialFeature(landmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth);
+  drawFacialFeature(landmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth);
+  drawFacialFeature(landmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth);
 }
 
 // Facial feature connections
@@ -150,6 +209,27 @@ const FACEMESH_FACE_OVAL = [
   [162, 21], [21, 54], [54, 103], [103, 67], [67, 109], [109, 10]
 ];
 
+let previousLandmarks = null;
+const smoothingFactor = 0.5;
+
+// Adjust canvas size to match viewport
+function onResize() {
+  canvasElement.width = window.innerWidth;
+  canvasElement.height = window.innerHeight;
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+function smoothLandmarks(currentLandmarks, previousLandmarks) {
+  if (!previousLandmarks) return currentLandmarks;
+  
+  return currentLandmarks.map((landmark, i) => ({
+    x: previousLandmarks[i].x + (landmark.x - previousLandmarks[i].x) * smoothingFactor,
+    y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
+    z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * smoothingFactor
+  }));
+}
+
 function onResults(results) {
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -198,6 +278,16 @@ function onResults(results) {
       drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth);
       drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth);
       drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth);
+
+      // Sync face mesh data in multiplayer mode
+      if (isMultiplayer && room) {
+        room.send({
+          type: 'faceMeshUpdate',
+          landmarks: smoothedLandmarks,
+          clientId: room.party.client.id,
+          username: room.party.client.username
+        });
+      }
     }
   }
   canvasCtx.restore();

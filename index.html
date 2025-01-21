@@ -37,12 +37,18 @@
         <input type="checkbox" id="gameMode">
         <span>Enable falling objects game</span>
       </div>
+      <div class="settings-group">
+        <label for="multiplayerMode">Multiplayer Mode:</label>
+        <input type="checkbox" id="multiplayerMode">
+        <span>Join multiplayer session</span>
+      </div>
       <button id="startButton">Start Face Tracking</button>
     </div>
   </div>
   
   <div class="container" style="display: none">
     <div id="score">Score: 0</div>
+    <div id="playerList"></div>
     <canvas id="output"></canvas>
     <video id="input" style="display: none"></video>
     <canvas id="gameCanvas"></canvas>
