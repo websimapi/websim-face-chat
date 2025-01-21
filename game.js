@@ -14,31 +14,35 @@ class Game {
     this.mouthWasClosed = true;
     this.mouthOpenThreshold = 30;
     
-    // Define food types with shapes and colors
+    // Add rotation and bounce properties to itemTypes
     this.itemTypes = [
       {
         type: 'good',
         shape: 'burger',
-        color: '#8B4513', // burger color
+        color: '#8B4513',
         points: 10,
         radius: 20,
-        probability: 0.4
+        probability: 0.4,
+        rotates: false
       },
       {
         type: 'good',
         shape: 'pizza',
-        color: '#FFD700', // pizza color
+        color: '#FFD700',
         points: 15,
         radius: 20,
-        probability: 0.3
+        probability: 0.3,
+        rotates: true,
+        bounces: true
       },
       {
         type: 'bad',
         shape: 'poison',
-        color: '#800080', // poison color
+        color: '#800080',
         points: -20,
         radius: 15,
-        probability: 0.3
+        probability: 0.3,
+        rotates: false
       }
     ];
     
@@ -104,13 +108,16 @@ class Game {
     this.ctx.restore();
   }
 
-  drawPizza(x, y, radius) {
+  drawPizza(x, y, radius, rotation = 0) {
     this.ctx.save();
+    this.ctx.translate(x, y);
+    this.ctx.rotate(rotation);
+    
     // Pizza triangle
     this.ctx.beginPath();
-    this.ctx.moveTo(x, y - radius);
-    this.ctx.lineTo(x - radius, y + radius);
-    this.ctx.lineTo(x + radius, y + radius);
+    this.ctx.moveTo(0, -radius);
+    this.ctx.lineTo(-radius, radius);
+    this.ctx.lineTo(radius, radius);
     this.ctx.closePath();
     this.ctx.fillStyle = '#FFD700';
     this.ctx.fill();
@@ -118,14 +125,15 @@ class Game {
     // Pepperoni
     this.ctx.fillStyle = '#FF0000';
     this.ctx.beginPath();
-    this.ctx.arc(x, y, radius/4, 0, Math.PI * 2);
+    this.ctx.arc(0, 0, radius/4, 0, Math.PI * 2);
     this.ctx.fill();
     this.ctx.beginPath();
-    this.ctx.arc(x - radius/2, y + radius/2, radius/4, 0, Math.PI * 2);
+    this.ctx.arc(-radius/2, radius/2, radius/4, 0, Math.PI * 2);
     this.ctx.fill();
     this.ctx.beginPath();
-    this.ctx.arc(x + radius/2, y + radius/2, radius/4, 0, Math.PI * 2);
+    this.ctx.arc(radius/2, radius/2, radius/4, 0, Math.PI * 2);
     this.ctx.fill();
+    
     this.ctx.restore();
   }
 
@@ -176,7 +184,12 @@ class Game {
       radius: selectedType.radius,
       speed: Math.random() * 2 + 2,
       canBeEaten: true,
-      eatingProgress: 0 // Track eating progress
+      eatingProgress: 0,
+      rotation: 0,
+      rotates: selectedType.rotates,
+      bounces: selectedType.bounces,
+      dx: (Math.random() - 0.5) * 4, // Horizontal velocity for bouncing
+      rotationSpeed: Math.random() * 0.1 + 0.05 // Rotation speed
     });
   }
   
@@ -229,7 +242,7 @@ class Game {
           this.drawBurger(obj.x, obj.y, obj.radius);
           break;
         case 'pizza':
-          this.drawPizza(obj.x, obj.y, obj.radius);
+          this.drawPizza(obj.x, obj.y, obj.radius, obj.rotation);
           break;
         case 'poison':
           this.drawPoison(obj.x, obj.y, obj.radius);
@@ -237,7 +250,7 @@ class Game {
       }
     }
   }
-  
+
   update() {
     const now = Date.now();
     if (now - this.lastSpawnTime > this.spawnInterval) {
@@ -249,8 +262,27 @@ class Game {
       const obj = this.objects[i];
       obj.y += obj.speed;
       
+      // Update rotation for rotating objects
+      if (obj.rotates) {
+        obj.rotation += obj.rotationSpeed;
+      }
+      
+      // Handle bouncing movement for bouncing objects
+      if (obj.bounces) {
+        obj.x += obj.dx;
+        
+        // Bounce off walls
+        if (obj.x < obj.radius) {
+          obj.x = obj.radius;
+          obj.dx = Math.abs(obj.dx);
+        } else if (obj.x > this.canvas.width - obj.radius) {
+          obj.x = this.canvas.width - obj.radius;
+          obj.dx = -Math.abs(obj.dx);
+        }
+      }
+      
       if (this.checkMouthCollision(obj)) {
-        obj.canBeEaten = false; // Prevent multiple collisions
+        obj.canBeEaten = false; 
         this.score += obj.points;
         this.updateScore();
         this.objects.splice(i, 1);
@@ -261,7 +293,7 @@ class Game {
       }
     }
   }
-  
+
   pause() {
     if (this.gameActive) {
       this.isPaused = true;
