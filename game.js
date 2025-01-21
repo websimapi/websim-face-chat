@@ -410,8 +410,18 @@ class Game {
     requestAnimationFrame(this.gameLoop);
   }
 
-  window.addEventListener('blur', () => this.pause());
-  window.addEventListener('focus', () => this.unpause());
 }
+
+window.addEventListener('blur', () => {
+  if (window.game) {
+    window.game.pause();
+  }
+});
+
+window.addEventListener('focus', () => {
+  if (window.game) {
+    window.game.unpause();
+  }
+});
 
 window.Game = Game;
