@@ -23,25 +23,49 @@ function smoothLandmarks(currentLandmarks, previousLandmarks) {
   }));
 }
 
-// Standard MediaPipe face mesh connections
-const FACEMESH_TESSELATION = [
-  [127, 34], [34, 139], [139, 127], [11, 0], [0, 37], [37, 11],
-  [232, 231], [231, 120], [120, 232], [72, 37], [37, 39], [39, 72],
-  [128, 121], [121, 47], [47, 128], [232, 121], [121, 128], [128, 232],
-  [104, 69], [69, 67], [67, 104], [175, 171], [171, 148], [148, 175],
-  [118, 50], [50, 101], [101, 118], [73, 39], [39, 40], [40, 73],
-  [9, 151], [151, 108], [108, 9], [48, 115], [115, 131], [131, 48],
-  [194, 204], [204, 211], [211, 194], [74, 40], [40, 185], [185, 74],
-  [80, 42], [42, 183], [183, 80], [40, 92], [92, 186], [186, 40],
-  [230, 229], [229, 118], [118, 230], [202, 212], [212, 214], [214, 202],
-  [83, 18], [18, 17], [17, 83], [76, 61], [61, 146], [146, 76],
-  [160, 29], [29, 30], [30, 160], [56, 157], [157, 173], [173, 56],
-  [106, 204], [204, 194], [194, 106], [135, 214], [214, 192], [192, 135],
-  [187, 216], [216, 207], [207, 187], [151, 122], [122, 141], [141, 151],
-  [158, 159], [159, 160], [160, 158], [170, 171], [171, 175], [175, 170]
-];
+// Facial feature connections
+const FACE_CONNECTIONS = {
+  // Left eye
+  leftEye: [
+    [33, 133], [133, 173], [173, 157], [157, 158], [158, 159], [159, 160], 
+    [160, 161], [161, 246], [246, 33]
+  ],
+  // Right eye
+  rightEye: [
+    [362, 398], [398, 384], [384, 385], [385, 386], [386, 387], [387, 388], 
+    [388, 466], [466, 362]
+  ],
+  // Left eyebrow
+  leftEyebrow: [
+    [70, 63], [63, 105], [105, 66], [66, 107], [107, 55], [55, 65], [65, 52], 
+    [52, 53], [53, 46]
+  ],
+  // Right eyebrow
+  rightEyebrow: [
+    [300, 293], [293, 334], [334, 296], [296, 336], [336, 285], [285, 295], 
+    [295, 282], [282, 283], [283, 276]
+  ],
+  // Nose
+  nose: [
+    [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19], [19, 94], 
+    [94, 2], [2, 164], [164, 0], [0, 11], [11, 12], [12, 13], [13, 14], [14, 15], 
+    [15, 16], [16, 17], [17, 18], [18, 200], [200, 199], [199, 175]
+  ],
+  // Lips outer
+  lipsOuter: [
+    [61, 146], [146, 91], [91, 181], [181, 84], [84, 17], [17, 314], [314, 405], 
+    [405, 321], [321, 375], [375, 291], [61, 185], [185, 40], [40, 39], [39, 37],
+    [37, 0], [0, 267], [267, 269], [269, 270], [270, 409], [409, 291]
+  ],
+  // Lips inner
+  lipsInner: [
+    [78, 95], [95, 88], [88, 178], [178, 87], [87, 14], [14, 317], [317, 402], 
+    [402, 318], [318, 324], [324, 308], [78, 191], [191, 80], [80, 81], [81, 82],
+    [82, 13], [13, 312], [312, 311], [311, 310], [310, 415], [415, 308]
+  ]
+};
 
-// Face contours for a more defined look
+// Face contours for the main outline
 const FACEMESH_FACE_OVAL = [
   [10, 338], [338, 297], [297, 332], [332, 284], [284, 251], [251, 389],
   [389, 356], [356, 454], [454, 323], [323, 361], [361, 288], [288, 397],
@@ -60,40 +84,58 @@ function onResults(results) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
 
-      // Draw face mesh
-      canvasCtx.lineWidth = 1;
-      canvasCtx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
-      canvasCtx.fillStyle = 'rgba(0, 255, 0, 0.1)';
-      
-      // Draw tesselation
-      FACEMESH_TESSELATION.forEach(([i, j]) => {
-        const start = smoothedLandmarks[i];
-        const end = smoothedLandmarks[j];
-        
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-        canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-        canvasCtx.stroke();
-      });
-
-      // Draw face contour with glow
+      // Draw face outline
       canvasCtx.lineWidth = 2;
       canvasCtx.strokeStyle = '#00ff00';
       canvasCtx.shadowColor = '#00ff00';
       canvasCtx.shadowBlur = 10;
       
-      FACEMESH_FACE_OVAL.forEach(([i, j]) => {
-        const start = smoothedLandmarks[i];
-        const end = smoothedLandmarks[j];
-        
-        canvasCtx.beginPath();
-        canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-        canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-        canvasCtx.stroke();
-      });
+      // Draw face outline
+      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, '#00ff00', 2);
+
+      // Draw facial features
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, '#00ff00', 1.5);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, '#00ff00', 1.5);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, '#00ff00', 1.5);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, '#00ff00', 1.5);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, '#00ff00', 1.5);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, '#00ff00', 1.5);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, '#00ff00', 1.5);
     }
   }
   canvasCtx.restore();
+}
+
+function drawConnectors(landmarks, connections, color, width) {
+  canvasCtx.lineWidth = width;
+  canvasCtx.strokeStyle = color;
+  
+  connections.forEach(([i, j]) => {
+    const start = landmarks[i];
+    const end = landmarks[j];
+    
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+    canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+    canvasCtx.stroke();
+  });
+}
+
+function drawFacialFeature(landmarks, connections, color, width) {
+  canvasCtx.lineWidth = width;
+  canvasCtx.strokeStyle = color;
+  canvasCtx.shadowColor = color;
+  canvasCtx.shadowBlur = 5;
+  
+  connections.forEach(([i, j]) => {
+    const start = landmarks[i];
+    const end = landmarks[j];
+    
+    canvasCtx.beginPath();
+    canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+    canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+    canvasCtx.stroke();
+  });
 }
 
 const faceMesh = new FaceMesh({
