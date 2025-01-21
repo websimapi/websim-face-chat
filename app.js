@@ -71,27 +71,27 @@ function clearDetections() {
 
 async function detectObjects(imageElement) {
   if (!objectDetector) return;
-  
+
   try {
     showLoadingIndicator();
     const output = await objectDetector(imageElement);
-    
+
     clearDetections();
     const overlay = document.getElementById('detection-overlay');
-    
+
     output.forEach(detection => {
       const { box, label, score } = detection;
       const { xmax, xmin, ymax, ymin } = box;
-      
+
       // Convert normalized coordinates to pixels
       const imgWidth = imageElement.offsetWidth;
       const imgHeight = imageElement.offsetHeight;
-      
+
       const left = xmin * imgWidth;
       const top = ymin * imgHeight;
       const width = (xmax - xmin) * imgWidth;
       const height = (ymax - ymin) * imgHeight;
-      
+
       // Create detection box
       const detectionBox = document.createElement('div');
       detectionBox.className = 'detection-box';
@@ -99,13 +99,13 @@ async function detectObjects(imageElement) {
       detectionBox.style.top = `${top}px`;
       detectionBox.style.width = `${width}px`;
       detectionBox.style.height = `${height}px`;
-      
+
       // Create label
       const labelElement = document.createElement('div');
       labelElement.className = 'detection-label';
       labelElement.textContent = `${label} (${Math.round(score * 100)}%)`;
       detectionBox.appendChild(labelElement);
-      
+
       overlay.appendChild(detectionBox);
     });
   } catch (error) {
@@ -116,8 +116,8 @@ async function detectObjects(imageElement) {
 }
 
 function loadBackgroundImage(prompt) {
-  clearDetections();
-  
+  clearDetections;
+
   // Remove any existing background images
   document.querySelectorAll('[id^="background-image-"]').forEach(img => img.remove());
 
@@ -127,14 +127,14 @@ function loadBackgroundImage(prompt) {
   backgroundImg.id = uniqueId;
   backgroundImg.alt = prompt;
   backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(prompt)}`;
-  
+
   backgroundImg.onload = async () => {
     backgroundImg.classList.add('loaded');
     if (isObjectDetectionEnabled) {
       await detectObjects(backgroundImg);
     }
   };
-  
+
   document.body.insertBefore(backgroundImg, document.body.firstChild);
 }
 
@@ -148,16 +148,16 @@ objectDetectionCheckbox.addEventListener('change', (e) => {
 startButton.addEventListener('click', async () => {
   settingsModal.style.display = 'none';
   container.style.display = 'block';
-  
+
   if (isObjectDetectionEnabled) {
     await initializeObjectDetector();
   }
-  
+
   // Handle background prompt if provided
   if (backgroundPromptInput.value.trim()) {
     loadBackgroundImage(backgroundPromptInput.value.trim());
   }
-  
+
   // Start camera
   camera.start();
 });
@@ -175,7 +175,7 @@ onResize();
 
 function smoothLandmarks(currentLandmarks, previousLandmarks) {
   if (!previousLandmarks) return currentLandmarks;
-  
+
   return currentLandmarks.map((landmark, i) => ({
     x: previousLandmarks[i].x + (landmark.x - previousLandmarks[i].x) * smoothingFactor,
     y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
@@ -187,38 +187,38 @@ function smoothLandmarks(currentLandmarks, previousLandmarks) {
 const FACE_CONNECTIONS = {
   // Left eye remains the same
   leftEye: [
-    [263, 249], [249, 390], [390, 373], [373, 374], [374, 380], 
-    [380, 381], [381, 382], [382, 362], [263, 466], [466, 388], 
+    [263, 249], [249, 390], [390, 373], [373, 374], [374, 380],
+    [380, 381], [381, 382], [382, 362], [263, 466], [466, 388],
     [388, 387], [387, 386], [386, 385], [385, 384], [384, 398], [398, 362]
   ],
   // Right eye remains the same
   rightEye: [
-    [33, 7], [7, 163], [163, 144], [144, 145], [145, 153], 
-    [153, 154], [154, 155], [155, 133], [33, 246], [246, 161], 
+    [33, 7], [7, 163], [163, 144], [144, 145], [145, 153],
+    [153, 154], [154, 155], [155, 133], [33, 246], [246, 161],
     [161, 160], [160, 159], [159, 158], [158, 157], [157, 173], [173, 133]
   ],
   // Eyebrows remain the same
   leftEyebrow: [
-    [70, 63], [63, 105], [105, 66], [66, 107], [107, 55], [55, 65], [65, 52], 
+    [70, 63], [63, 105], [105, 66], [66, 107], [107, 55], [55, 65], [65, 52],
     [52, 53], [53, 46]
   ],
   rightEyebrow: [
-    [300, 293], [293, 334], [334, 296], [296, 336], [336, 285], [285, 295], 
+    [300, 293], [293, 334], [334, 296], [296, 336], [336, 285], [285, 295],
     [295, 282], [282, 283], [283, 276]
   ],
   // Updated nose to remove connection to lips
   nose: [
-    [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19], 
+    [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19],
     [19, 94], [94, 2], [2, 164]  // Removed the [164, 0] connection that went to lips
   ],
   // Lips remain the same
   lipsOuter: [
-    [61, 146], [146, 91], [91, 181], [181, 84], [84, 17], [17, 314], [314, 405], 
+    [61, 146], [146, 91], [91, 181], [181, 84], [84, 17], [17, 314], [314, 405],
     [405, 321], [321, 375], [375, 291], [61, 185], [185, 40], [40, 39], [39, 37],
     [37, 0], [0, 267], [267, 269], [269, 270], [270, 409], [409, 291]
   ],
   lipsInner: [
-    [78, 95], [95, 88], [88, 178], [178, 87], [87, 14], [14, 317], [317, 402], 
+    [78, 95], [95, 88], [88, 178], [178, 87], [87, 14], [14, 317], [317, 402],
     [402, 318], [318, 324], [324, 308], [78, 191], [191, 80], [80, 81], [81, 82],
     [82, 13], [13, 312], [312, 311], [311, 310], [310, 415], [415, 308]
   ]
@@ -247,7 +247,7 @@ function onResults(results) {
       canvasCtx.strokeStyle = settings.lineColor;
       canvasCtx.shadowColor = settings.lineColor;
       canvasCtx.shadowBlur = settings.glowIntensity;
-      
+
       // Draw face outline
       drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth);
 
@@ -267,11 +267,11 @@ function onResults(results) {
 function drawConnectors(landmarks, connections, color, width) {
   canvasCtx.lineWidth = width;
   canvasCtx.strokeStyle = color;
-  
+
   connections.forEach(([i, j]) => {
     const start = landmarks[i];
     const end = landmarks[j];
-    
+
     canvasCtx.beginPath();
     canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
     canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
@@ -284,11 +284,11 @@ function drawFacialFeature(landmarks, connections, color, width) {
   canvasCtx.strokeStyle = color;
   canvasCtx.shadowColor = color;
   canvasCtx.shadowBlur = 5;
-  
+
   connections.forEach(([i, j]) => {
     const start = landmarks[i];
     const end = landmarks[j];
-    
+
     canvasCtx.beginPath();
     canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
     canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
@@ -313,7 +313,7 @@ faceMesh.onResults(onResults);
 
 const camera = new Camera(videoElement, {
   onFrame: async () => {
-    await faceMesh.send({image: videoElement});
+    await faceMesh.send({ image: videoElement });
   },
   width: 1280,
   height: 720,
