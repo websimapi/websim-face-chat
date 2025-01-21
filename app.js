@@ -40,11 +40,21 @@ let isObjectDetectionEnabled = false;
 // Initialize the object detector
 async function initializeObjectDetector() {
   try {
+    const statusEl = document.getElementById('detectionStatus');
+    if (statusEl) statusEl.textContent = 'Initializing...';
+    
     const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
-    objectDetector = await pipeline('object-detection');
+    objectDetector = await pipeline('object-detection', {
+      model: 'Xenova/detr-resnet-50',
+      quantized: false
+    });
+    
+    if (statusEl) statusEl.textContent = 'Ready';
     return true;
   } catch (error) {
     console.error('Error initializing object detector:', error);
+    const statusEl = document.getElementById('detectionStatus');
+    if (statusEl) statusEl.textContent = `Init Error: ${error.message}`;
     return false;
   }
 }
@@ -111,17 +121,29 @@ function createDebugPanel() {
 }
 
 async function detectObjects(imageElement) {
-  if (!objectDetector) return;
+  if (!objectDetector) {
+    console.error('Object detector not initialized');
+    const statusEl = document.getElementById('detectionStatus');
+    if (statusEl) statusEl.textContent = 'Detector not ready';
+    return;
+  }
+
+  const statusEl = document.getElementById('detectionStatus');
+  const timeEl = document.getElementById('lastDetectionTime');
+  const countEl = document.getElementById('detectionCount');
 
   try {
-    const statusEl = document.getElementById('detectionStatus');
-    const timeEl = document.getElementById('lastDetectionTime');
-    const countEl = document.getElementById('detectionCount');
-    
+    if (!imageElement.complete || !imageElement.naturalHeight) {
+      throw new Error('Image not fully loaded');
+    }
+
     statusEl.textContent = 'Detecting...';
     showLoadingIndicator();
     
-    const output = await objectDetector(imageElement);
+    const output = await objectDetector(imageElement, {
+      threshold: 0.5,
+      maxObjects: 20
+    });
     
     clearDetections();
     const overlay = document.getElementById('detection-overlay');
@@ -129,47 +151,54 @@ async function detectObjects(imageElement) {
     detectionCount = output.length;
     lastDetectionTime = new Date().toLocaleTimeString();
     
-    output.forEach(detection => {
-      const { box, label, score } = detection;
-      const { xmax, xmin, ymax, ymin } = box;
+    if (output.length === 0) {
+      statusEl.textContent = 'No objects detected';
+    } else {
+      output.forEach(detection => {
+        const { box, label, score } = detection;
+        const { xmax, xmin, ymax, ymin } = box;
 
-      const imgWidth = imageElement.offsetWidth;
-      const imgHeight = imageElement.offsetHeight;
+        const imgWidth = imageElement.offsetWidth;
+        const imgHeight = imageElement.offsetHeight;
 
-      const left = xmin * imgWidth;
-      const top = ymin * imgHeight;
-      const width = (xmax - xmin) * imgWidth;
-      const height = (ymax - ymin) * imgHeight;
+        // Ensure values are within bounds
+        const left = Math.max(0, Math.min(xmin * imgWidth, imgWidth));
+        const top = Math.max(0, Math.min(ymin * imgHeight, imgHeight));
+        const width = Math.max(0, Math.min((xmax - xmin) * imgWidth, imgWidth - left));
+        const height = Math.max(0, Math.min((ymax - ymin) * imgHeight, imgHeight - top));
 
-      const detectionBox = document.createElement('div');
-      detectionBox.className = 'detection-box';
-      detectionBox.style.left = `${left}px`;
-      detectionBox.style.top = `${top}px`;
-      detectionBox.style.width = `${width}px`;
-      detectionBox.style.height = `${height}px`;
+        const detectionBox = document.createElement('div');
+        detectionBox.className = 'detection-box';
+        detectionBox.style.left = `${left}px`;
+        detectionBox.style.top = `${top}px`;
+        detectionBox.style.width = `${width}px`;
+        detectionBox.style.height = `${height}px`;
 
-      const labelElement = document.createElement('div');
-      labelElement.className = 'detection-label';
-      labelElement.textContent = `${label} (${Math.round(score * 100)}%)`;
-      detectionBox.appendChild(labelElement);
+        const labelElement = document.createElement('div');
+        labelElement.className = 'detection-label';
+        labelElement.textContent = `${label} (${Math.round(score * 100)}%)`;
+        detectionBox.appendChild(labelElement);
 
-      overlay.appendChild(detectionBox);
-    });
+        overlay.appendChild(detectionBox);
+      });
+      statusEl.textContent = 'Complete';
+    }
 
     // Update debug info
     timeEl.textContent = lastDetectionTime;
     countEl.textContent = detectionCount;
-    statusEl.textContent = 'Complete';
   } catch (error) {
     console.error('Error detecting objects:', error);
-    document.getElementById('detectionStatus').textContent = 'Error';
+    statusEl.textContent = `Error: ${error.message}`;
+    timeEl.textContent = 'Failed';
+    countEl.textContent = '0';
   } finally {
     hideLoadingIndicator();
   }
 }
 
 function loadBackgroundImage(prompt) {
-  clearDetections;
+  clearDetections();
 
   // Remove any existing background images
   document.querySelectorAll('[id^="background-image-"]').forEach(img => img.remove());
@@ -179,15 +208,26 @@ function loadBackgroundImage(prompt) {
   const uniqueId = `background-image-${imageCounter++}`;
   backgroundImg.id = uniqueId;
   backgroundImg.alt = prompt;
-  backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(prompt)}`;
+  
+  // Update status before loading
+  const statusEl = document.getElementById('detectionStatus');
+  if (statusEl) statusEl.textContent = 'Loading image...';
 
+  // Set up onload handler before setting src
   backgroundImg.onload = async () => {
     backgroundImg.classList.add('loaded');
-    if (isObjectDetectionEnabled) {
+    if (isObjectDetectionEnabled && objectDetector) {
       await detectObjects(backgroundImg);
     }
   };
 
+  backgroundImg.onerror = () => {
+    const statusEl = document.getElementById('detectionStatus');
+    if (statusEl) statusEl.textContent = 'Failed to load image';
+  };
+
+  // Set the source last
+  backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(prompt)}`;
   document.body.insertBefore(backgroundImg, document.body.firstChild);
 }
 
