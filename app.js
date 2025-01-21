@@ -32,38 +32,33 @@ glowIntensityInput.addEventListener('input', (e) => {
   glowIntensityValue.textContent = e.target.value;
 });
 
-startButton.addEventListener('click', () => {
-  settingsModal.style.display = 'none';
-  container.style.display = 'block';
-  
-  // Always create a default background if none specified
-  const promptText = backgroundPromptInput.value.trim() || 'dark abstract digital background';
-  
+function loadBackgroundImage(prompt) {
   // Remove any existing background image
   const existingBg = document.getElementById('background-image');
   if (existingBg) {
     existingBg.remove();
   }
-  
-  // Create new background image
+
   const backgroundImg = document.createElement('img');
   backgroundImg.id = 'background-image';
-  backgroundImg.alt = promptText;
-  // Use Unsplash source with the prompt
-  backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(promptText)}`;
+  backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(prompt)}`;
   
-  // Add load event to ensure image is loaded
+  // Add loaded class when image is loaded
   backgroundImg.onload = () => {
-    console.log('Background image loaded');
+    backgroundImg.classList.add('loaded');
   };
   
-  // Add error handling
-  backgroundImg.onerror = (e) => {
-    console.error('Failed to load background image', e);
-  };
-  
-  // Insert the background image into body
   document.body.insertBefore(backgroundImg, document.body.firstChild);
+}
+
+startButton.addEventListener('click', () => {
+  settingsModal.style.display = 'none';
+  container.style.display = 'block';
+  
+  // Handle background prompt if provided
+  if (backgroundPromptInput.value.trim()) {
+    loadBackgroundImage(backgroundPromptInput.value.trim());
+  }
   
   // Start camera
   camera.start();
