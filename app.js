@@ -34,7 +34,89 @@ glowIntensityInput.addEventListener('input', (e) => {
 
 let imageCounter = 0;
 
+let objectDetector = null;
+let isObjectDetectionEnabled = false;
+
+// Initialize the object detector
+async function initializeObjectDetector() {
+  try {
+    objectDetector = await pipeline('object-detection');
+    return true;
+  } catch (error) {
+    console.error('Error initializing object detector:', error);
+    return false;
+  }
+}
+
+function showLoadingIndicator() {
+  const loader = document.createElement('div');
+  loader.className = 'loading-indicator';
+  loader.id = 'loading-indicator';
+  loader.textContent = 'Detecting objects...';
+  document.body.appendChild(loader);
+}
+
+function hideLoadingIndicator() {
+  const loader = document.getElementById('loading-indicator');
+  if (loader) {
+    loader.remove();
+  }
+}
+
+function clearDetections() {
+  const overlay = document.getElementById('detection-overlay');
+  overlay.innerHTML = '';
+}
+
+async function detectObjects(imageElement) {
+  if (!objectDetector) return;
+  
+  try {
+    showLoadingIndicator();
+    const output = await objectDetector(imageElement);
+    
+    clearDetections();
+    const overlay = document.getElementById('detection-overlay');
+    
+    output.forEach(detection => {
+      const { box, label, score } = detection;
+      const { xmax, xmin, ymax, ymin } = box;
+      
+      // Convert normalized coordinates to pixels
+      const imgWidth = imageElement.offsetWidth;
+      const imgHeight = imageElement.offsetHeight;
+      
+      const left = xmin * imgWidth;
+      const top = ymin * imgHeight;
+      const width = (xmax - xmin) * imgWidth;
+      const height = (ymax - ymin) * imgHeight;
+      
+      // Create detection box
+      const detectionBox = document.createElement('div');
+      detectionBox.className = 'detection-box';
+      detectionBox.style.left = `${left}px`;
+      detectionBox.style.top = `${top}px`;
+      detectionBox.style.width = `${width}px`;
+      detectionBox.style.height = `${height}px`;
+      
+      // Create label
+      const labelElement = document.createElement('div');
+      labelElement.className = 'detection-label';
+      labelElement.textContent = `${label} (${Math.round(score * 100)}%)`;
+      detectionBox.appendChild(labelElement);
+      
+      overlay.appendChild(detectionBox);
+    });
+  } catch (error) {
+    console.error('Error detecting objects:', error);
+  } finally {
+    hideLoadingIndicator();
+  }
+}
+
 function loadBackgroundImage(prompt) {
+  clearDetections();
+  
   // Remove any existing background images
   document.querySelectorAll('[id^="background-image-"]').forEach(img => img.remove());
 
@@ -42,20 +124,33 @@ function loadBackgroundImage(prompt) {
   const backgroundImg = document.createElement('img');
   const uniqueId = `background-image-${imageCounter++}`;
   backgroundImg.id = uniqueId;
-  backgroundImg.alt = prompt; // Set alt text to exact prompt
+  backgroundImg.alt = prompt;
   backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(prompt)}`;
   
-  // Add loaded class when image is loaded
-  backgroundImg.onload = () => {
+  backgroundImg.onload = async () => {
     backgroundImg.classList.add('loaded');
+    if (isObjectDetectionEnabled) {
+      await detectObjects(backgroundImg);
+    }
   };
   
   document.body.insertBefore(backgroundImg, document.body.firstChild);
 }
 
-startButton.addEventListener('click', () => {
+// Add checkbox event listener
+const objectDetectionCheckbox = document.getElementById('enableObjectDetection');
+objectDetectionCheckbox.addEventListener('change', (e) => {
+  isObjectDetectionEnabled = e.target.checked;
+});
+
+// Modify start button click handler
+startButton.addEventListener('click', async () => {
   settingsModal.style.display = 'none';
   container.style.display = 'block';
+  
+  if (isObjectDetectionEnabled) {
+    await initializeObjectDetector();
+  }
   
   // Handle background prompt if provided
   if (backgroundPromptInput.value.trim()) {
