@@ -13,6 +13,10 @@
   <div id="settings-modal" class="modal">
     <div class="modal-content">
       <h2>Face Tracking Settings</h2>
+      <div class="settings-preview">
+        <video id="preview-video"></video>
+        <canvas id="preview-canvas"></canvas>
+      </div>
       <div class="settings-group">
         <label for="lineColor">Line Color:</label>
         <input type="color" id="lineColor" value="#00ff00">
@@ -26,6 +30,24 @@
         <label for="glowIntensity">Glow Intensity:</label>
         <input type="range" id="glowIntensity" min="0" max="20" value="10">
         <span id="glowIntensityValue">10</span>
+      </div>
+      <div class="settings-group">
+        <label>Attachments:</label>
+        <div class="attachment-options">
+          <label>
+            <input type="checkbox" name="attachment" value="glasses">
+            Glasses
+          </label>
+          <label>
+            <input type="checkbox" name="attachment" value="hat">
+            Hat
+          </label>
+          <label>
+            <input type="checkbox" name="attachment" value="mustache">
+            Mustache
+          </label>
+          <input type="color" id="attachmentColor" value="#ffffff">
+        </div>
       </div>
       <div class="settings-group">
         <label for="backgroundPrompt">Background Image Prompt:</label>
@@ -43,7 +65,7 @@
   <div class="container" style="display: none">
     <div id="playerList"></div>
     <canvas id="output"></canvas>
-    <video id="input"></video>
+    <video id="input" style="display: none"></video>
   </div>
 <script defer src="https://static.cloudflareinsights.com/beacon.min.js/v8c78df7c7c0f484497ecbca7046644da1771523124516" integrity="sha512-8DS7rgIrAmghBFwoOTujcf6D9rXvH8xm8JQ1Ja01h9QX8EzXldiszufYa4IFfKdLUKTTrnSFXLDkUEOTrZQ8Qg==" data-cf-beacon='{"version":"2024.11.0","token":"4c6229722a6346bc8eb5cb0e5eae5d41","server_timing":{"name":{"cfCacheStatus":true,"cfEdge":true,"cfExtPri":true,"cfL4":true,"cfOrigin":true,"cfSpeedBrain":true},"location_startswith":null}}' crossorigin="anonymous"></script>
 </body>
