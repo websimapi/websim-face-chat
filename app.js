@@ -36,36 +36,34 @@ startButton.addEventListener('click', () => {
   settingsModal.style.display = 'none';
   container.style.display = 'block';
   
-  // Handle background prompt if provided
-  const promptText = backgroundPromptInput.value.trim();
-  if (promptText) {
-    // Remove any existing background image
-    const existingBg = document.getElementById('background-image');
-    if (existingBg) {
-      existingBg.remove();
-    }
-    
-    // Create new background image
-    const backgroundImg = document.createElement('img');
-    backgroundImg.id = 'background-image';
-    backgroundImg.alt = promptText;
-    // Use Unsplash source with the prompt
-    backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(promptText)}`;
-    
-    // Add load event to ensure image is visible
-    backgroundImg.onload = () => {
-      console.log('Background image loaded');
-      backgroundImg.style.display = 'block';
-    };
-    
-    // Add error handling
-    backgroundImg.onerror = () => {
-      console.error('Failed to load background image');
-    };
-    
-    // Insert the background image as first child of container
-    document.body.insertBefore(backgroundImg, document.body.firstChild);
+  // Always create a default background if none specified
+  const promptText = backgroundPromptInput.value.trim() || 'dark abstract digital background';
+  
+  // Remove any existing background image
+  const existingBg = document.getElementById('background-image');
+  if (existingBg) {
+    existingBg.remove();
   }
+  
+  // Create new background image
+  const backgroundImg = document.createElement('img');
+  backgroundImg.id = 'background-image';
+  backgroundImg.alt = promptText;
+  // Use Unsplash source with the prompt
+  backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(promptText)}`;
+  
+  // Add load event to ensure image is loaded
+  backgroundImg.onload = () => {
+    console.log('Background image loaded');
+  };
+  
+  // Add error handling
+  backgroundImg.onerror = (e) => {
+    console.error('Failed to load background image', e);
+  };
+  
+  // Insert the background image into body
+  document.body.insertBefore(backgroundImg, document.body.firstChild);
   
   // Start camera
   camera.start();
