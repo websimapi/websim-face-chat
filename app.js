@@ -138,13 +138,14 @@ async function detectObjects(imageElement) {
   const countEl = document.getElementById('detectionCount');
 
   try {
-    if (!imageElement.complete || !imageElement.naturalHeight) {
+    if (!imageElement || !imageElement.complete || !imageElement.naturalHeight) {
       throw new Error('Image not fully loaded');
     }
 
     statusEl.textContent = 'Detecting...';
     showLoadingIndicator();
     
+    // Ensure we're passing a valid image element to the detector
     const output = await objectDetector(imageElement, {
       threshold: 0.5,
       maxObjects: 20
@@ -153,15 +154,23 @@ async function detectObjects(imageElement) {
     clearDetections();
     const overlay = document.getElementById('detection-overlay');
 
-    detectionCount = output.length;
+    detectionCount = Array.isArray(output) ? output.length : 0;
     lastDetectionTime = new Date().toLocaleTimeString();
     
-    if (output.length === 0) {
+    if (!output || output.length === 0) {
       statusEl.textContent = 'No objects detected';
     } else {
       output.forEach(detection => {
+        if (!detection || !detection.box || !detection.label) return;
+        
         const { box, label, score } = detection;
         const { xmax, xmin, ymax, ymin } = box;
+
+        // Ensure we have valid numbers
+        if ([xmax, xmin, ymax, ymin].some(val => typeof val !== 'number')) {
+          console.warn('Invalid detection coordinates:', box);
+          return;
+        }
 
         const imgWidth = imageElement.offsetWidth;
         const imgHeight = imageElement.offsetHeight;
@@ -181,7 +190,10 @@ async function detectObjects(imageElement) {
 
         const labelElement = document.createElement('div');
         labelElement.className = 'detection-label';
-        labelElement.textContent = `${label} (${Math.round(score * 100)}%)`;
+        // Ensure label is a string
+        const labelText = String(label);
+        const scoreText = typeof score === 'number' ? Math.round(score * 100) : 0;
+        labelElement.textContent = `${labelText} (${scoreText}%)`;
         detectionBox.appendChild(labelElement);
 
         overlay.appendChild(detectionBox);
@@ -190,13 +202,13 @@ async function detectObjects(imageElement) {
     }
 
     // Update debug info
-    timeEl.textContent = lastDetectionTime;
-    countEl.textContent = detectionCount;
+    if (timeEl) timeEl.textContent = lastDetectionTime || 'Unknown';
+    if (countEl) countEl.textContent = detectionCount.toString();
   } catch (error) {
     console.error('Error detecting objects:', error);
-    statusEl.textContent = `Error: ${error.message}`;
-    timeEl.textContent = 'Failed';
-    countEl.textContent = '0';
+    if (statusEl) statusEl.textContent = `Error: ${error.message || 'Unknown error'}`;
+    if (timeEl) timeEl.textContent = 'Failed';
+    if (countEl) countEl.textContent = '0';
   } finally {
     hideLoadingIndicator();
   }
