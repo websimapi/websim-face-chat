@@ -40,6 +40,7 @@ let isObjectDetectionEnabled = false;
 // Initialize the object detector
 async function initializeObjectDetector() {
   try {
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
     objectDetector = await pipeline('object-detection');
     return true;
   } catch (error) {
