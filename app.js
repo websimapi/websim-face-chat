@@ -87,6 +87,8 @@ startButton.addEventListener('click', async () => {
   camera.start();
 });
 
+const remoteUserSettings = {};
+
 function setupMultiplayer() {
   const playerList = document.getElementById('playerList');
   
@@ -133,8 +135,77 @@ function setupMultiplayer() {
           game.updateGlobalScore(data.score);
         }
         break;
+      case 'settingsUpdate':
+        if (data.clientId !== room.party.client.id) {
+          // Store remote user settings in a map keyed by clientId
+          remoteUserSettings[data.clientId] = {
+            lineColor: data.settings.lineColor,
+            lineWidth: data.settings.lineWidth,
+            glowIntensity: data.settings.glowIntensity
+          };
+        }
+        break;
     }
   };
+
+  // Send initial settings when joining
+  room.send({
+    type: 'settingsUpdate',
+    clientId: room.party.client.id,
+    settings: {
+      lineColor: settings.lineColor,
+      lineWidth: settings.lineWidth,
+      glowIntensity: settings.glowIntensity
+    }
+  });
+
+  // Add event listeners for settings changes to relay to other users
+  lineColorInput.addEventListener('input', (e) => {
+    settings.lineColor = e.target.value;
+    if (isMultiplayer && room) {
+      room.send({
+        type: 'settingsUpdate',
+        clientId: room.party.client.id,
+        settings: {
+          lineColor: settings.lineColor,
+          lineWidth: settings.lineWidth,
+          glowIntensity: settings.glowIntensity
+        }
+      });
+    }
+  });
+
+  lineWidthInput.addEventListener('input', (e) => {
+    settings.lineWidth = e.target.value;
+    lineWidthValue.textContent = e.target.value;
+    if (isMultiplayer && room) {
+      room.send({
+        type: 'settingsUpdate',
+        clientId: room.party.client.id,
+        settings: {
+          lineColor: settings.lineColor,
+          lineWidth: settings.lineWidth,
+          glowIntensity: settings.glowIntensity
+        }
+      });
+    }
+  });
+
+  glowIntensityInput.addEventListener('input', (e) => {
+    settings.glowIntensity = e.target.value;
+    glowIntensityValue.textContent = e.target.value;
+    if (isMultiplayer && room) {
+      room.send({
+        type: 'settingsUpdate',
+        clientId: room.party.client.id,
+        settings: {
+          lineColor: settings.lineColor,
+          lineWidth: settings.lineWidth,
+          glowIntensity: settings.glowIntensity
+        }
+      });
+    }
+  });
 }
 
 function updateRemoteFaceMesh(data) {
@@ -144,23 +215,30 @@ function updateRemoteFaceMesh(data) {
   const remoteCtx = remoteCanvas.getContext('2d');
   remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
   
-  // Draw face mesh using the received landmarks
-  remoteCtx.lineWidth = settings.lineWidth;
-  remoteCtx.strokeStyle = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`; // Unique color per user
-  remoteCtx.shadowColor = remoteCtx.strokeStyle;
-  remoteCtx.shadowBlur = settings.glowIntensity;
+  // Get the remote user's settings or use defaults
+  const userSettings = remoteUserSettings[data.clientId] || {
+    lineColor: '#00ff00',
+    lineWidth: 2,
+    glowIntensity: 10
+  };
+  
+  // Draw face mesh using the received landmarks and user's settings
+  remoteCtx.lineWidth = userSettings.lineWidth;
+  remoteCtx.strokeStyle = userSettings.lineColor;
+  remoteCtx.shadowColor = userSettings.lineColor;
+  remoteCtx.shadowBlur = userSettings.glowIntensity;
   
   // Draw face outline
-  drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
+  drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
 
-  // Draw facial features
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEyebrow, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, remoteCtx.strokeStyle, settings.lineWidth, remoteCtx);
+  // Draw facial features with user's settings
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEyebrow, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
 }
 
 // Facial feature connections
