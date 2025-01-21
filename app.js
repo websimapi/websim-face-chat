@@ -1,6 +1,3 @@
-import { Camera } from '@mediapipe/camera_utils';
-import { FaceMesh } from '@mediapipe/face_mesh';
-
 const videoElement = document.getElementById('input');
 const canvasElement = document.getElementById('output');
 const canvasCtx = canvasElement.getContext('2d');
