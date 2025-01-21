@@ -10,8 +10,9 @@ class Game {
     this.gameActive = false;
     this.scoreElement = document.getElementById('score');
     
-    // Adjust collision radius based on score/face size
-    this.baseCollisionRadius = 20;
+    // Add mouth state tracking
+    this.mouthWasClosed = true;
+    this.mouthOpenThreshold = 30; // Threshold for mouth openness
     
     this.itemTypes = [
       { type: 'good', color: '#00ff00', points: 10, radius: 15, probability: 0.7 },
@@ -31,6 +32,7 @@ class Game {
     this.gameActive = true;
     this.score = 0;
     this.objects = [];
+    this.mouthWasClosed = true;
     this.scoreElement.style.display = 'block';
     this.updateScore();
     this.gameLoop();
@@ -56,23 +58,38 @@ class Game {
       color: itemType.color,
       points: itemType.points,
       radius: itemType.radius,
-      speed: Math.random() * 2 + 2
+      speed: Math.random() * 2 + 2,
+      canBeEaten: true // Add flag to prevent multiple collisions
     });
   }
   
   checkMouthCollision(object) {
-    if (!this.faceMeshData.mouthOpen || !this.faceMeshData.mouthCenter) return false;
+    if (!this.faceMeshData.mouthCenter || !object.canBeEaten) return false;
     
-    // Scale collision radius based on score
-    const scale = 0.4 + Math.min(0.8, (this.score / 100) * 0.02);
-    const currentCollisionRadius = this.baseCollisionRadius * scale;
+    // Get current mouth state
+    const isMouthOpen = this.faceMeshData.mouthOpen;
     
+    // Calculate distance between mouth and object
     const distance = Math.hypot(
       object.x - this.faceMeshData.mouthCenter.x,
       object.y - this.faceMeshData.mouthCenter.y
     );
     
-    return distance < object.radius + currentCollisionRadius;
+    // Check if object is within mouth area
+    const isInMouthArea = distance < object.radius + 20;
+    
+    // Implement mouth closing logic
+    if (isInMouthArea && isMouthOpen && this.mouthWasClosed) {
+      this.mouthWasClosed = false; // Reset mouth closed state
+      return true;
+    }
+    
+    // Update mouth closed state
+    if (!isMouthOpen) {
+      this.mouthWasClosed = true;
+    }
+    
+    return false;
   }
   
   update() {
@@ -87,6 +104,7 @@ class Game {
       obj.y += obj.speed;
       
       if (this.checkMouthCollision(obj)) {
+        obj.canBeEaten = false; // Prevent multiple collisions
         this.score += obj.points;
         this.updateScore();
         this.objects.splice(i, 1);

@@ -2,8 +2,7 @@
 let settings = {
   lineColor: '#00ff00',
   lineWidth: 2,
-  glowIntensity: 10,
-  faceScale: 1 // Add new setting for face scale
+  glowIntensity: 10
 };
 
 // DOM Elements
@@ -151,14 +150,6 @@ const FACEMESH_FACE_OVAL = [
   [162, 21], [21, 54], [54, 103], [103, 67], [67, 109], [109, 10]
 ];
 
-function getFaceScale(score) {
-  // Start at 0.4 (40% of original size) and grow up to 1.2x size
-  // Increase scale by 0.02 for every 100 points
-  const baseScale = 0.4;
-  const scaleIncrease = Math.min(0.8, (score / 100) * 0.02);
-  return baseScale + scaleIncrease;
-}
-
 function onResults(results) {
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -168,39 +159,25 @@ function onResults(results) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
 
-      // Calculate current face scale based on game score
-      const currentScale = game ? getFaceScale(game.score) : 1;
-      
-      // Create scaled landmarks
-      const scaledLandmarks = smoothedLandmarks.map(landmark => {
-        // Calculate center of canvas
-        const centerX = 0.5;
-        const centerY = 0.5;
-        
-        // Scale coordinates relative to center
-        return {
-          x: centerX + (landmark.x - centerX) * currentScale,
-          y: centerY + (landmark.y - centerY) * currentScale,
-          z: landmark.z * currentScale
-        };
-      });
-
       // Update game mouth position if game is active
       if (game) {
-        const upperLip = scaledLandmarks[13];
-        const lowerLip = scaledLandmarks[14];
+        // Calculate mouth openness using upper and lower lip landmarks
+        const upperLip = smoothedLandmarks[13];
+        const lowerLip = smoothedLandmarks[14];
         const mouthDistance = Math.hypot(
           (upperLip.x - lowerLip.x) * canvasElement.width,
           (upperLip.y - lowerLip.y) * canvasElement.height
         );
         
+        // Calculate mouth center
         const mouthCenter = {
           x: (upperLip.x + lowerLip.x) / 2 * canvasElement.width,
           y: (upperLip.y + lowerLip.y) / 2 * canvasElement.height
         };
         
+        // Update game data
         game.faceMeshData = {
-          mouthOpen: mouthDistance > 30 * currentScale, // Scale threshold with face size
+          mouthOpen: mouthDistance > 30, // Adjust threshold as needed
           mouthCenter: mouthCenter
         };
       }
@@ -210,17 +187,17 @@ function onResults(results) {
       canvasCtx.shadowColor = settings.lineColor;
       canvasCtx.shadowBlur = settings.glowIntensity;
       
-      // Draw face outline with scaled landmarks
-      drawConnectors(scaledLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth);
+      // Draw face outline
+      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth);
 
-      // Draw facial features with scaled landmarks
-      drawFacialFeature(scaledLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth);
-      drawFacialFeature(scaledLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth);
-      drawFacialFeature(scaledLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth);
-      drawFacialFeature(scaledLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth);
-      drawFacialFeature(scaledLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth);
-      drawFacialFeature(scaledLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth);
-      drawFacialFeature(scaledLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth);
+      // Draw facial features
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth);
     }
   }
   canvasCtx.restore();
