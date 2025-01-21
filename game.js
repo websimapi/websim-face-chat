@@ -10,6 +10,9 @@ class Game {
     this.gameActive = false;
     this.scoreElement = document.getElementById('score');
     
+    // Adjust collision radius based on score/face size
+    this.baseCollisionRadius = 20;
+    
     this.itemTypes = [
       { type: 'good', color: '#00ff00', points: 10, radius: 15, probability: 0.7 },
       { type: 'bad', color: '#ff0000', points: -20, radius: 15, probability: 0.3 }
@@ -60,12 +63,16 @@ class Game {
   checkMouthCollision(object) {
     if (!this.faceMeshData.mouthOpen || !this.faceMeshData.mouthCenter) return false;
     
+    // Scale collision radius based on score
+    const scale = 0.4 + Math.min(0.8, (this.score / 100) * 0.02);
+    const currentCollisionRadius = this.baseCollisionRadius * scale;
+    
     const distance = Math.hypot(
       object.x - this.faceMeshData.mouthCenter.x,
       object.y - this.faceMeshData.mouthCenter.y
     );
     
-    return distance < object.radius + 20;
+    return distance < object.radius + currentCollisionRadius;
   }
   
   update() {
