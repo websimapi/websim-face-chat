@@ -150,8 +150,17 @@ async function detectObjects(imageElement) {
     statusEl.textContent = 'Detecting...';
     showLoadingIndicator();
 
-    // Run detection directly on the image element
-    const output = await objectDetector(imageElement, {
+    // Create a temporary canvas for image processing
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imageElement.naturalWidth;
+    tempCanvas.height = imageElement.naturalHeight;
+    const tempCtx = tempCanvas.getContext('2d');
+    
+    // Draw the image to the canvas
+    tempCtx.drawImage(imageElement, 0, 0);
+
+    // Run detection on the canvas element
+    const output = await objectDetector(tempCanvas, {
       threshold: 0.5,
       maxObjects: 20
     });
@@ -195,7 +204,6 @@ async function detectObjects(imageElement) {
 
         const labelElement = document.createElement('div');
         labelElement.className = 'detection-label';
-        // Ensure label is a string
         const labelText = String(label);
         const scoreText = typeof score === 'number' ? Math.round(score * 100) : 0;
         labelElement.textContent = `${labelText} (${scoreText}%)`;
@@ -209,6 +217,10 @@ async function detectObjects(imageElement) {
     // Update debug info
     if (timeEl) timeEl.textContent = lastDetectionTime || 'Unknown';
     if (countEl) countEl.textContent = detectionCount.toString();
+
+    // Clean up
+    tempCanvas.remove();
+
   } catch (error) {
     console.error('Error detecting objects:', error);
     if (statusEl) statusEl.textContent = `Error: ${error.message || 'Unknown error'}`;
@@ -230,6 +242,7 @@ function loadBackgroundImage(prompt) {
   const uniqueId = `background-image-${imageCounter++}`;
   backgroundImg.id = uniqueId;
   backgroundImg.alt = prompt;
+  backgroundImg.crossOrigin = "anonymous"; // Add this to allow canvas operations
   
   // Update status before loading
   const statusEl = document.getElementById('detectionStatus');
