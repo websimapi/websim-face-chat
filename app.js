@@ -152,19 +152,30 @@ async function detectObjects(imageElement) {
 
     // Create a temporary canvas for image processing
     const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = imageElement.naturalWidth;
-    tempCanvas.height = imageElement.naturalHeight;
     const tempCtx = tempCanvas.getContext('2d');
     
-    // Draw the image to the canvas
+    // Set canvas dimensions to match the image's natural dimensions
+    tempCanvas.width = imageElement.naturalWidth;
+    tempCanvas.height = imageElement.naturalHeight;
+    
+    // Draw the image to the temporary canvas
     tempCtx.drawImage(imageElement, 0, 0);
 
-    // Run detection on the canvas element
-    const output = await objectDetector(tempCanvas, {
+    // Get the image data as a blob
+    const blob = await new Promise(resolve => tempCanvas.toBlob(resolve, 'image/jpeg'));
+    
+    // Convert blob to array buffer
+    const arrayBuffer = await blob.arrayBuffer();
+    
+    // Create Uint8Array from array buffer
+    const uint8Array = new Uint8Array(arrayBuffer);
+
+    // Run detection
+    const output = await objectDetector(uint8Array, {
       threshold: 0.5,
       maxObjects: 20
     });
-    
+
     clearDetections();
     const overlay = document.getElementById('detection-overlay');
 
@@ -242,8 +253,8 @@ function loadBackgroundImage(prompt) {
   const uniqueId = `background-image-${imageCounter++}`;
   backgroundImg.id = uniqueId;
   backgroundImg.alt = prompt;
-  backgroundImg.crossOrigin = "anonymous"; // Add this to allow canvas operations
-  
+  backgroundImg.crossOrigin = "anonymous"; // This is important for canvas operations
+
   // Update status before loading
   const statusEl = document.getElementById('detectionStatus');
   if (statusEl) statusEl.textContent = 'Loading image...';
