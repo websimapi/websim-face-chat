@@ -352,11 +352,29 @@ const smoothingFactor = 0.5;
 
 // Adjust canvas size to match viewport
 function onResize() {
+  if (!canvasElement) {
+    // Safety check - if canvas isn't loaded yet, try to get it
+    canvasElement = document.getElementById('output');
+    if (!canvasElement) return; // Exit if still not found
+  }
+  
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
+  
+  // Also resize any remote player canvases
+  document.querySelectorAll('.remote-face-mesh').forEach(canvas => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+  });
 }
-window.addEventListener('resize', onResize);
-onResize();
+
+// Only add resize listener after DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+  // Add resize listener
+  window.addEventListener('resize', onResize);
+  // Initial resize
+  onResize();
+});
 
 function smoothLandmarks(currentLandmarks, previousLandmarks) {
   if (!previousLandmarks) return currentLandmarks;
