@@ -96,11 +96,14 @@ class Game {
     this.ctx.fillStyle = '#8B4513';
     this.ctx.fillRect(x - radius, y + radius/4, radius * 2, radius/3);
     
-    // Bun bottom (improved)
+    // Bun bottom (flatter)
     this.ctx.beginPath();
     this.ctx.fillStyle = '#F4A460';
-    this.ctx.arc(x, y + radius/2, radius, 0, Math.PI, false);
-    this.ctx.rect(x - radius, y + radius/2, radius * 2, radius/4);
+    this.ctx.moveTo(x - radius, y + radius/2);
+    this.ctx.lineTo(x + radius, y + radius/2);
+    this.ctx.lineTo(x + radius, y + radius);
+    this.ctx.arc(x, y + radius, radius, 0, Math.PI, true);
+    this.ctx.lineTo(x - radius, y + radius/2);
     this.ctx.fill();
     
     this.ctx.restore();
