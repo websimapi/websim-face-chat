@@ -107,30 +107,17 @@ function createDebugPanel() {
     panel.classList.toggle('collapsed');
   });
 
-  // Retry detection button
+  // Retry detection button with transformer reinitialization
   const retryBtn = panel.querySelector('#retryDetection');
   retryBtn.addEventListener('click', async () => {
-    const statusEl = document.getElementById('detectionStatus');
-    
-    if (!isObjectDetectionEnabled) {
-      if (statusEl) statusEl.textContent = 'Object detection is disabled';
-      return;
-    }
-    
-    if (!objectDetector) {
-      if (statusEl) statusEl.textContent = 'Initializing detector...';
-      const initialized = await initializeObjectDetector();
-      if (!initialized) {
-        if (statusEl) statusEl.textContent = 'Failed to initialize detector';
-        return;
-      }
-    }
-
     const currentBg = document.querySelector('[id^="background-image-"].loaded');
-    if (currentBg) {
-      await detectObjects(currentBg);
-    } else {
-      if (statusEl) statusEl.textContent = 'No background image loaded';
+    if (currentBg && isObjectDetectionEnabled) {
+      // Reset object detector
+      objectDetector = null;
+      const success = await initializeObjectDetector();
+      if (success) {
+        await detectObjects(currentBg);
+      }
     }
   });
 
@@ -260,18 +247,11 @@ startButton.addEventListener('click', async () => {
   settingsModal.style.display = 'none';
   container.style.display = 'block';
 
-  createDebugPanel();
-
   if (isObjectDetectionEnabled) {
-    const statusEl = document.getElementById('detectionStatus');
-    if (statusEl) statusEl.textContent = 'Initializing detector...';
-    
-    const initialized = await initializeObjectDetector();
-    if (!initialized) {
-      if (statusEl) statusEl.textContent = 'Failed to initialize detector';
-      return;
-    }
+    await initializeObjectDetector();
   }
+
+  createDebugPanel();
 
   if (backgroundPromptInput.value.trim()) {
     loadBackgroundImage(backgroundPromptInput.value.trim());
