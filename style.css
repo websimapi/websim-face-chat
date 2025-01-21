@@ -25,6 +25,10 @@ canvas {
   background: transparent;
 }
 
+#gameCanvas {
+  z-index: 2;
+}
+
 video {
   position: absolute;
   width: 100%;
@@ -123,106 +127,14 @@ h2 {
   opacity: 1;
 }
 
-#detection-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 1;
-}
-
-.detection-box {
-  position: absolute;
-  border: 2px solid #00ff00;
-  background: rgba(0, 255, 0, 0.1);
-  pointer-events: none;
-}
-
-.detection-label {
-  position: absolute;
-  background: rgba(0, 0, 0, 0.7);
-  color: #fff;
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  top: -24px;
-  left: 0;
-  white-space: nowrap;
-}
-
-.loading-indicator {
-  position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
-  padding: 10px 20px;
-  border-radius: 20px;
-  font-size: 14px;
-  z-index: 1000;
-}
-
-.debug-panel {
+#score {
   position: fixed;
   top: 20px;
   right: 20px;
-  background: rgba(0, 0, 0, 0.8);
-  border-radius: 8px;
-  color: #fff;
-  padding: 15px;
-  z-index: 1000;
-  min-width: 200px;
-  transition: transform 0.3s ease;
-}
-
-.debug-panel.collapsed {
-  transform: translateX(calc(100% - 40px));
-}
-
-.debug-panel-toggle {
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
-  border: none;
-  padding: 8px;
-  cursor: pointer;
-  border-radius: 4px 0 0 4px;
-  width: 30px;
-  height: 60px;
-}
-
-.debug-panel-content {
-  margin-left: 20px;
-}
-
-.debug-button {
-  background: #333;
-  border: 1px solid #555;
-  color: #fff;
-  padding: 8px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  margin: 5px 0;
-  width: 100%;
-}
-
-.debug-button:hover {
-  background: #444;
-}
-
-.debug-info {
-  margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.debug-panel h3 {
-  margin: 0 0 10px 0;
-  font-size: 14px;
+  color: #00ff00;
+  font-size: 24px;
+  font-weight: bold;
+  z-index: 100;
+  text-shadow: 0 0 10px #00ff00;
+  display: none;
 }
