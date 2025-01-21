@@ -187,6 +187,9 @@ function updateRemoteFaceMesh(data) {
   const remoteCtx = remoteCanvas.getContext('2d');
   remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
   
+  // Scale the received landmarks for the remote faces
+  const scaledLandmarks = scaleLandmarksToViewport(data.landmarks);
+  
   // Use received settings if available, otherwise generate from client ID
   let userColor, userGlow;
   if (data.settings) {
@@ -202,23 +205,17 @@ function updateRemoteFaceMesh(data) {
     userGlow = settings.glowIntensity;
   }
   
-  // Draw face mesh using the received landmarks and user settings
+  // Draw face mesh using the scaled landmarks and user settings
   remoteCtx.lineWidth = settings.lineWidth;
   remoteCtx.strokeStyle = userColor;
   remoteCtx.shadowColor = userColor;
   remoteCtx.shadowBlur = userGlow;
   
-  // Draw face outline
-  drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
-
-  // Draw facial features with user's settings
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEyebrow, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userColor, settings.lineWidth, remoteCtx);
+  // Draw face outline and features with scaled landmarks
+  drawConnectors(scaledLandmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
+  Object.values(FACE_CONNECTIONS).forEach(connections => {
+    drawFacialFeature(scaledLandmarks, connections, userColor, settings.lineWidth, remoteCtx);
+  });
 }
 
 function onResults(results) {
@@ -227,7 +224,9 @@ function onResults(results) {
 
   if (results.multiFaceLandmarks) {
     for (const landmarks of results.multiFaceLandmarks) {
-      const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
+      // Scale landmarks to viewport size while maintaining aspect ratio
+      const scaledLandmarks = scaleLandmarksToViewport(landmarks);
+      const smoothedLandmarks = smoothLandmarks(scaledLandmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
 
       // Update game mouth position if game is active
@@ -242,13 +241,13 @@ function onResults(results) {
         
         // Calculate mouth center
         const mouthCenter = {
-          x: (upperLip.x + lowerLip.x) / 2 * canvasElement.width,
-          y: (upperLip.y + lowerLip.y) / 2 * canvasElement.height
+          x: upperLip.x * canvasElement.width,
+          y: upperLip.y * canvasElement.height
         };
         
         // Update game data
         game.faceMeshData = {
-          mouthOpen: mouthDistance > 30,
+          mouthOpen: mouthDistance > game.mouthOpenThreshold,
           mouthCenter: mouthCenter
         };
       }
@@ -289,65 +288,65 @@ function onResults(results) {
   canvasCtx.restore();
 }
 
-// Facial feature connections
-const FACE_CONNECTIONS = {
-  // Left eye remains the same
-  leftEye: [
-    [263, 249], [249, 390], [390, 373], [373, 374], [374, 380], 
-    [380, 381], [381, 382], [382, 362], [263, 466], [466, 388], 
-    [388, 387], [387, 386], [386, 385], [385, 384], [384, 398], [398, 362]
-  ],
-  // Right eye remains the same
-  rightEye: [
-    [33, 7], [7, 163], [163, 144], [144, 145], [145, 153], 
-    [153, 154], [154, 155], [155, 133], [33, 246], [246, 161], 
-    [161, 160], [160, 159], [159, 158], [158, 157], [157, 173], [173, 133]
-  ],
-  // Eyebrows remain the same
-  leftEyebrow: [
-    [70, 63], [63, 105], [105, 66], [66, 107], [107, 55], [55, 65], [65, 52], 
-    [52, 53], [53, 46]
-  ],
-  rightEyebrow: [
-    [300, 293], [293, 334], [334, 296], [296, 336], [336, 285], [285, 295], 
-    [295, 282], [282, 283], [283, 276]
-  ],
-  // Updated nose to remove connection to lips
-  nose: [
-    [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19], 
-    [19, 94], [94, 2], [2, 164]  // Removed the [164, 0] connection that went to lips
-  ],
-  // Lips remain the same
-  lipsOuter: [
-    [61, 146], [146, 91], [91, 181], [181, 84], [84, 17], [17, 314], [314, 405], 
-    [405, 321], [321, 375], [375, 291], [61, 185], [185, 40], [40, 39], [39, 37],
-    [37, 0], [0, 267], [267, 269], [269, 270], [270, 409], [409, 291]
-  ],
-  lipsInner: [
-    [78, 95], [95, 88], [88, 178], [178, 87], [87, 14], [14, 317], [317, 402], 
-    [402, 318], [318, 324], [324, 308], [78, 191], [191, 80], [80, 81], [81, 82],
-    [82, 13], [13, 312], [312, 311], [311, 310], [310, 415], [415, 308]
-  ]
-};
+// Add new function to scale landmarks to viewport
+function scaleLandmarksToViewport(landmarks) {
+  // Get viewport aspect ratio
+  const viewportAspectRatio = window.innerWidth / window.innerHeight;
+  
+  return landmarks.map(landmark => {
+    // Create a copy of the landmark
+    const scaled = { ...landmark };
+    
+    // Adjust x coordinates based on viewport aspect ratio
+    if (viewportAspectRatio > 1) {
+      // Landscape: scale horizontally
+      const scale = 1 / viewportAspectRatio;
+      const offset = (1 - scale) / 2;
+      scaled.x = (landmark.x * scale) + offset;
+    } else {
+      // Portrait: scale vertically
+      const scale = viewportAspectRatio;
+      const offset = (1 - scale) / 2;
+      scaled.y = (landmark.y * scale) + offset;
+    }
+    
+    return scaled;
+  });
+}
 
-// Face contours for the main outline
-const FACEMESH_FACE_OVAL = [
-  [10, 338], [338, 297], [297, 332], [332, 284], [284, 251], [251, 389],
-  [389, 356], [356, 454], [454, 323], [323, 361], [361, 288], [288, 397],
-  [397, 365], [365, 379], [379, 378], [378, 400], [400, 377], [377, 152],
-  [152, 148], [148, 176], [176, 149], [149, 150], [150, 136], [136, 172],
-  [172, 58], [58, 132], [132, 93], [93, 234], [234, 127], [127, 162],
-  [162, 21], [21, 54], [54, 103], [103, 67], [67, 109], [109, 10]
-];
+// Update onResize function to handle scaling
+function onResize() {
+  canvasElement.width = window.innerWidth;
+  canvasElement.height = window.innerHeight;
+  
+  // Adjust face mesh options based on device
+  const isMobile = window.innerWidth < 768;
+  faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: isMobile ? 0.7 : 0.5,  // Higher confidence on mobile
+    minTrackingConfidence: isMobile ? 0.7 : 0.5
+  });
+  
+  // Update camera settings
+  if (camera) {
+    camera.stop();
+    camera = new Camera(videoElement, {
+      onFrame: async () => {
+        await faceMesh.send({image: videoElement});
+      },
+      width: isMobile ? 640 : 1280,  // Lower resolution on mobile
+      height: isMobile ? 480 : 720,
+      facingMode: 'user'
+    });
+    camera.start();
+  }
+}
 
 let previousLandmarks = null;
 const smoothingFactor = 0.5;
 
 // Adjust canvas size to match viewport
-function onResize() {
-  canvasElement.width = window.innerWidth;
-  canvasElement.height = window.innerHeight;
-}
 window.addEventListener('resize', onResize);
 onResize();
 
@@ -416,3 +415,54 @@ const camera = new Camera(videoElement, {
   height: 720,
   facingMode: 'user'
 });
+
+// Facial feature connections
+const FACE_CONNECTIONS = {
+  // Left eye remains the same
+  leftEye: [
+    [263, 249], [249, 390], [390, 373], [373, 374], [374, 380], 
+    [380, 381], [381, 382], [382, 362], [263, 466], [466, 388], 
+    [388, 387], [387, 386], [386, 385], [385, 384], [384, 398], [398, 362]
+  ],
+  // Right eye remains the same
+  rightEye: [
+    [33, 7], [7, 163], [163, 144], [144, 145], [145, 153], 
+    [153, 154], [154, 155], [155, 133], [33, 246], [246, 161], 
+    [161, 160], [160, 159], [159, 158], [158, 157], [157, 173], [173, 133]
+  ],
+  // Eyebrows remain the same
+  leftEyebrow: [
+    [70, 63], [63, 105], [105, 66], [66, 107], [107, 55], [55, 65], [65, 52], 
+    [52, 53], [53, 46]
+  ],
+  rightEyebrow: [
+    [300, 293], [293, 334], [334, 296], [296, 336], [336, 285], [285, 295], 
+    [295, 282], [282, 283], [283, 276]
+  ],
+  // Updated nose to remove connection to lips
+  nose: [
+    [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19], 
+    [19, 94], [94, 2], [2, 164]  // Removed the [164, 0] connection that went to lips
+  ],
+  // Lips remain the same
+  lipsOuter: [
+    [61, 146], [146, 91], [91, 181], [181, 84], [84, 17], [17, 314], [314, 405], 
+    [405, 321], [321, 375], [375, 291], [61, 185], [185, 40], [40, 39], [39, 37],
+    [37, 0], [0, 267], [267, 269], [269, 270], [270, 409], [409, 291]
+  ],
+  lipsInner: [
+    [78, 95], [95, 88], [88, 178], [178, 87], [87, 14], [14, 317], [317, 402], 
+    [402, 318], [318, 324], [324, 308], [78, 191], [191, 80], [80, 81], [81, 82],
+    [82, 13], [13, 312], [312, 311], [311, 310], [310, 415], [415, 308]
+  ]
+};
+
+// Face contours for the main outline
+const FACEMESH_FACE_OVAL = [
+  [10, 338], [338, 297], [297, 332], [332, 284], [284, 251], [251, 389],
+  [389, 356], [356, 454], [454, 323], [323, 361], [361, 288], [288, 397],
+  [397, 365], [365, 379], [379, 378], [378, 400], [400, 377], [377, 152],
+  [152, 148], [148, 176], [176, 149], [149, 150], [150, 136], [136, 172],
+  [172, 58], [58, 132], [132, 93], [93, 234], [234, 127], [127, 162],
+  [162, 21], [21, 54], [54, 103], [103, 67], [67, 109], [109, 10]
+];
