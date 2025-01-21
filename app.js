@@ -149,19 +149,9 @@ async function detectObjects(imageElement) {
 
     statusEl.textContent = 'Detecting...';
     showLoadingIndicator();
-    
-    // Create a temporary canvas to process the image
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = imageElement.naturalWidth;
-    tempCanvas.height = imageElement.naturalHeight;
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCtx.drawImage(imageElement, 0, 0);
 
-    // Get the image data as input for the model
-    const imageData = tempCanvas.toDataURL('image/jpeg');
-    
-    // Run detection on the processed image
-    const output = await objectDetector(imageData, {
+    // Run detection directly on the image element
+    const output = await objectDetector(imageElement, {
       threshold: 0.5,
       maxObjects: 20
     });
