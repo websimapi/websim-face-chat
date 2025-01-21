@@ -10,15 +10,36 @@ class Game {
     this.gameActive = false;
     this.scoreElement = document.getElementById('score');
     
-    // Enhanced mouth state tracking
+    // Add mouth state tracking
     this.mouthWasClosed = true;
     this.mouthOpenThreshold = 30;
-    this.readyToChomp = false; // New state to track chomp readiness
-    this.lastMouthState = false; // Track previous mouth state
     
+    // Define food types with shapes and colors
     this.itemTypes = [
-      { type: 'good', color: '#00ff00', points: 10, radius: 15, probability: 0.7 },
-      { type: 'bad', color: '#ff0000', points: -20, radius: 15, probability: 0.3 }
+      {
+        type: 'good',
+        shape: 'burger',
+        color: '#8B4513', // burger color
+        points: 10,
+        radius: 20,
+        probability: 0.4
+      },
+      {
+        type: 'good',
+        shape: 'pizza',
+        color: '#FFD700', // pizza color
+        points: 15,
+        radius: 20,
+        probability: 0.3
+      },
+      {
+        type: 'bad',
+        shape: 'poison',
+        color: '#800080', // poison color
+        points: -20,
+        radius: 15,
+        probability: 0.3
+      }
     ];
     
     this.resize();
@@ -49,19 +70,105 @@ class Game {
     this.scoreElement.textContent = `Score: ${this.score}`;
   }
   
+  drawBurger(x, y, radius) {
+    this.ctx.save();
+    // Bun top
+    this.ctx.beginPath();
+    this.ctx.fillStyle = '#F4A460';
+    this.ctx.arc(x, y - radius/4, radius, 0.25 * Math.PI, 0.75 * Math.PI, true);
+    this.ctx.fill();
+    
+    // Lettuce
+    this.ctx.beginPath();
+    this.ctx.fillStyle = '#32CD32';
+    this.ctx.fillRect(x - radius, y, radius * 2, radius/4);
+    
+    // Patty
+    this.ctx.beginPath();
+    this.ctx.fillStyle = '#8B4513';
+    this.ctx.fillRect(x - radius, y + radius/4, radius * 2, radius/3);
+    
+    // Bun bottom
+    this.ctx.beginPath();
+    this.ctx.fillStyle = '#F4A460';
+    this.ctx.arc(x, y + radius/2, radius, 1.25 * Math.PI, 1.75 * Math.PI, false);
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+
+  drawPizza(x, y, radius) {
+    this.ctx.save();
+    // Pizza triangle
+    this.ctx.beginPath();
+    this.ctx.moveTo(x, y - radius);
+    this.ctx.lineTo(x - radius, y + radius);
+    this.ctx.lineTo(x + radius, y + radius);
+    this.ctx.closePath();
+    this.ctx.fillStyle = '#FFD700';
+    this.ctx.fill();
+    
+    // Pepperoni
+    this.ctx.fillStyle = '#FF0000';
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius/4, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.beginPath();
+    this.ctx.arc(x - radius/2, y + radius/2, radius/4, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.beginPath();
+    this.ctx.arc(x + radius/2, y + radius/2, radius/4, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
+  }
+
+  drawPoison(x, y, radius) {
+    this.ctx.save();
+    // Poison bottle
+    this.ctx.beginPath();
+    this.ctx.moveTo(x - radius/2, y - radius);
+    this.ctx.lineTo(x + radius/2, y - radius);
+    this.ctx.lineTo(x + radius, y + radius);
+    this.ctx.lineTo(x - radius, y + radius);
+    this.ctx.closePath();
+    this.ctx.fillStyle = '#800080';
+    this.ctx.fill();
+    
+    // Skull symbol
+    this.ctx.fillStyle = '#FFFFFF';
+    this.ctx.font = `${radius}px Arial`;
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('☠', x, y);
+    this.ctx.restore();
+  }
+
   spawnObject() {
     const x = Math.random() * (this.canvas.width - 30) + 15;
-    const itemType = this.itemTypes[Math.random() > this.itemTypes[0].probability ? 1 : 0];
+    
+    // Select item type based on probabilities
+    const rand = Math.random();
+    let cumProb = 0;
+    let selectedType = this.itemTypes[0];
+    
+    for (const type of this.itemTypes) {
+      cumProb += type.probability;
+      if (rand <= cumProb) {
+        selectedType = type;
+        break;
+      }
+    }
     
     this.objects.push({
       x,
       y: -20,
-      type: itemType.type,
-      color: itemType.color,
-      points: itemType.points,
-      radius: itemType.radius,
+      type: selectedType.type,
+      shape: selectedType.shape,
+      color: selectedType.color,
+      points: selectedType.points,
+      radius: selectedType.radius,
       speed: Math.random() * 2 + 2,
-      canBeEaten: true // Add flag to prevent multiple collisions
+      canBeEaten: true,
+      eatingProgress: 0 // Track eating progress
     });
   }
   
@@ -69,37 +176,58 @@ class Game {
     if (!this.faceMeshData.mouthCenter || !object.canBeEaten) return false;
     
     const isMouthOpen = this.faceMeshData.mouthOpen;
-    
-    // Calculate distance between mouth and object
     const distance = Math.hypot(
       object.x - this.faceMeshData.mouthCenter.x,
       object.y - this.faceMeshData.mouthCenter.y
     );
     
-    // Check if object is within mouth area
     const isInMouthArea = distance < object.radius + 20;
     
-    // Detect mouth closing action
-    if (isInMouthArea) {
-      // If mouth was open and is now closed, and we were ready to chomp
-      if (!isMouthOpen && this.lastMouthState && this.readyToChomp) {
-        this.readyToChomp = false; // Reset chomp readiness
-        return true; // Successful chomp
-      }
-      
-      // If mouth is open and in position, get ready to chomp
-      if (isMouthOpen) {
-        this.readyToChomp = true;
-      }
-    } else {
-      // Reset chomp readiness if object is not in mouth area
-      this.readyToChomp = false;
+    // Start eating progress when mouth is open and object is in mouth area
+    if (isInMouthArea && isMouthOpen) {
+      object.eatingProgress = Math.min(object.eatingProgress + 0.1, 1);
+      return false;
     }
     
-    // Update last mouth state
-    this.lastMouthState = isMouthOpen;
+    // Complete eating when mouth closes with sufficient eating progress
+    if (isInMouthArea && !isMouthOpen && object.eatingProgress > 0.5) {
+      return true;
+    }
+    
+    // Reset eating progress if object leaves mouth area
+    if (!isInMouthArea) {
+      object.eatingProgress = 0;
+    }
     
     return false;
+  }
+  
+  draw() {
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    
+    for (const obj of this.objects) {
+      // Draw eating progress if being eaten
+      if (obj.eatingProgress > 0) {
+        this.ctx.beginPath();
+        this.ctx.strokeStyle = '#00ff00';
+        this.ctx.lineWidth = 3;
+        this.ctx.arc(obj.x, obj.y, obj.radius + 5, 0, Math.PI * 2 * obj.eatingProgress);
+        this.ctx.stroke();
+      }
+      
+      // Draw appropriate shape based on object type
+      switch(obj.shape) {
+        case 'burger':
+          this.drawBurger(obj.x, obj.y, obj.radius);
+          break;
+        case 'pizza':
+          this.drawPizza(obj.x, obj.y, obj.radius);
+          break;
+        case 'poison':
+          this.drawPoison(obj.x, obj.y, obj.radius);
+          break;
+      }
+    }
   }
   
   update() {
@@ -123,17 +251,6 @@ class Game {
         this.updateScore();
         this.objects.splice(i, 1);
       }
-    }
-  }
-  
-  draw() {
-    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-    
-    for (const obj of this.objects) {
-      this.ctx.beginPath();
-      this.ctx.fillStyle = obj.color;
-      this.ctx.arc(obj.x, obj.y, obj.radius, 0, Math.PI * 2);
-      this.ctx.fill();
     }
   }
   
