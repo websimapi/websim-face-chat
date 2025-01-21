@@ -43,10 +43,15 @@ async function initializeObjectDetector() {
     const statusEl = document.getElementById('detectionStatus');
     if (statusEl) statusEl.textContent = 'Initializing...';
     
-    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0');
-    objectDetector = await pipeline('object-detection', {
-      model: 'Xenova/detr-resnet-50',
-      quantized: false
+    // Import the transformers library and ensure proper initialization
+    const { pipeline } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.6.0/dist/transformers.min.js');
+    
+    // Wait for the pipeline to be fully initialized
+    objectDetector = await pipeline('object-detection', 'Xenova/detr-resnet-50', {
+      quantized: false,
+      progress_callback: (progress) => {
+        if (statusEl) statusEl.textContent = `Loading model: ${Math.round(progress.progress * 100)}%`;
+      }
     });
     
     if (statusEl) statusEl.textContent = 'Ready';
