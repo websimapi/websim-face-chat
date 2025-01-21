@@ -60,31 +60,101 @@ function loadBackgroundImage(prompt) {
   document.body.insertBefore(backgroundImg, document.body.firstChild);
 }
 
+let faceMesh = null;
+let camera = null;
+
+// Function to show error message
+function showError(message) {
+  const errorElement = document.getElementById('error-message');
+  errorElement.textContent = message;
+  errorElement.style.display = 'block';
+  setTimeout(() => {
+    errorElement.style.display = 'none';
+  }, 5000);
+}
+
+// Initialize FaceMesh with error handling
+async function initializeFaceMesh() {
+  try {
+    faceMesh = new FaceMesh({
+      locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+      }
+    });
+
+    await faceMesh.setOptions({
+      maxNumFaces: 1,
+      refineLandmarks: true,
+      minDetectionConfidence: 0.5,
+      minTrackingConfidence: 0.5
+    });
+
+    faceMesh.onResults(onResults);
+    return true;
+  } catch (error) {
+    console.error('FaceMesh initialization error:', error);
+    showError('Failed to initialize face tracking. Please refresh the page and try again.');
+    return false;
+  }
+}
+
+// Initialize camera with error handling
+async function initializeCamera() {
+  try {
+    camera = new Camera(videoElement, {
+      onFrame: async () => {
+        if (faceMesh) {
+          await faceMesh.send({image: videoElement});
+        }
+      },
+      width: 1280,
+      height: 720,
+      facingMode: 'user'
+    });
+    return true;
+  } catch (error) {
+    console.error('Camera initialization error:', error);
+    showError('Failed to access camera. Please make sure you have granted camera permissions.');
+    return false;
+  }
+}
+
 startButton.addEventListener('click', async () => {
-  settingsModal.style.display = 'none';
-  container.style.display = 'block';
-  
-  if (backgroundPromptInput.value.trim()) {
-    loadBackgroundImage(backgroundPromptInput.value.trim());
+  try {
+    const faceMeshInitialized = await initializeFaceMesh();
+    if (!faceMeshInitialized) return;
+    
+    const cameraInitialized = await initializeCamera();
+    if (!cameraInitialized) return;
+    
+    settingsModal.style.display = 'none';
+    container.style.display = 'block';
+    
+    if (backgroundPromptInput.value.trim()) {
+      loadBackgroundImage(backgroundPromptInput.value.trim());
+    }
+    
+    isMultiplayer = multiplayerModeCheckbox.checked;
+    
+    if (isMultiplayer) {
+      room = new WebsimSocket();
+      setupMultiplayer();
+    }
+    
+    if (gameModeCheckbox.checked) {
+      const gameCanvas = document.getElementById('gameCanvas');
+      game = new Game(gameCanvas, {
+        mouthOpen: false,
+        mouthCenter: { x: 0, y: 0 }
+      }, isMultiplayer, room);
+      game.start();
+    }
+    
+    await camera.start();
+  } catch (error) {
+    console.error('Startup error:', error);
+    showError('An error occurred while starting the application. Please refresh and try again.');
   }
-  
-  isMultiplayer = multiplayerModeCheckbox.checked;
-  
-  if (isMultiplayer) {
-    room = new WebsimSocket();
-    setupMultiplayer();
-  }
-  
-  if (gameModeCheckbox.checked) {
-    const gameCanvas = document.getElementById('gameCanvas');
-    game = new Game(gameCanvas, {
-      mouthOpen: false,
-      mouthCenter: { x: 0, y: 0 }
-    }, isMultiplayer, room);
-    game.start();
-  }
-  
-  camera.start();
 });
 
 function setupMultiplayer() {
@@ -118,7 +188,7 @@ function setupMultiplayer() {
         if (game) {
           game.updateGlobalScore(data.score);
         }
-        break;
+        break
     }
   };
 }
@@ -324,27 +394,3 @@ function drawFacialFeature(landmarks, connections, color, width) {
     canvasCtx.stroke();
   });
 }
-
-const faceMesh = new FaceMesh({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-  }
-});
-
-faceMesh.setOptions({
-  maxNumFaces: 1,
-  refineLandmarks: true,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
-
-faceMesh.onResults(onResults);
-
-const camera = new Camera(videoElement, {
-  onFrame: async () => {
-    await faceMesh.send({image: videoElement});
-  },
-  width: 1280,
-  height: 720,
-  facingMode: 'user'
-});
