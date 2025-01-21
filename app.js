@@ -20,14 +20,14 @@ const glowIntensityInput = document.getElementById('glowIntensity');
 const glowIntensityValue = document.getElementById('glowIntensityValue');
 const backgroundPromptInput = document.getElementById('backgroundPrompt');
 const startButton = document.getElementById('startButton');
-
-// Add gameMode checkbox reference
-const gameModeCheckbox = document.getElementById('gameMode');
 const multiplayerModeCheckbox = document.getElementById('multiplayerMode');
+const gameModeCheckbox = document.getElementById('gameMode');
+
 let room = null;
 let isMultiplayer = false;
 let game = null;
 
+// Add gameMode checkbox reference
 // Settings event listeners
 lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
 lineWidthInput.addEventListener('input', (e) => {
@@ -180,77 +180,14 @@ function updateOtherUserSettings(data) {
   userSettings.set(data.clientId, data.settings);
 }
 
-function updateRemoteFaceMesh(data) {
-  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
-  if (!remoteCanvas) return;
-  
-  const remoteCtx = remoteCanvas.getContext('2d');
-  remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
-  
-  // Scale the received landmarks for the remote faces
-  const scaledLandmarks = scaleLandmarksToViewport(data.landmarks);
-  
-  // Use received settings if available, otherwise generate from client ID
-  let userColor, userGlow;
-  if (data.settings) {
-    userSettings.set(data.clientId, data.settings);
-  }
-  
-  const savedSettings = userSettings.get(data.clientId);
-  if (savedSettings) {
-    userColor = savedSettings.lineColor;
-    userGlow = savedSettings.glowIntensity;
-  } else {
-    userColor = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`;
-    userGlow = settings.glowIntensity;
-  }
-  
-  // Draw face mesh using the scaled landmarks and user settings
-  remoteCtx.lineWidth = settings.lineWidth;
-  remoteCtx.strokeStyle = userColor;
-  remoteCtx.shadowColor = userColor;
-  remoteCtx.shadowBlur = userGlow;
-  
-  // Draw face outline and features with scaled landmarks
-  drawConnectors(scaledLandmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
-  Object.values(FACE_CONNECTIONS).forEach(connections => {
-    drawFacialFeature(scaledLandmarks, connections, userColor, settings.lineWidth, remoteCtx);
-  });
-}
-
 function onResults(results) {
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
   if (results.multiFaceLandmarks) {
     for (const landmarks of results.multiFaceLandmarks) {
-      // Scale landmarks to viewport size while maintaining aspect ratio
-      const scaledLandmarks = scaleLandmarksToViewport(landmarks);
-      const smoothedLandmarks = smoothLandmarks(scaledLandmarks, previousLandmarks);
+      const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
-
-      // Update game mouth position if game is active
-      if (game) {
-        // Calculate mouth openness using upper and lower lip landmarks
-        const upperLip = smoothedLandmarks[13];
-        const lowerLip = smoothedLandmarks[14];
-        const mouthDistance = Math.hypot(
-          (upperLip.x - lowerLip.x) * canvasElement.width,
-          (upperLip.y - lowerLip.y) * canvasElement.height
-        );
-        
-        // Calculate mouth center
-        const mouthCenter = {
-          x: upperLip.x * canvasElement.width,
-          y: upperLip.y * canvasElement.height
-        };
-        
-        // Update game data
-        game.faceMeshData = {
-          mouthOpen: mouthDistance > game.mouthOpenThreshold,
-          mouthCenter: mouthCenter
-        };
-      }
 
       canvasCtx.lineWidth = settings.lineWidth;
       canvasCtx.strokeStyle = settings.lineColor;
@@ -258,23 +195,18 @@ function onResults(results) {
       canvasCtx.shadowBlur = settings.glowIntensity;
       
       // Draw face outline and features with current user's settings
-      // Draw face outline
       drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth, canvasCtx);
-
-      // Draw facial features
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth, canvasCtx);
+      drawFacialFeatures(smoothedLandmarks, settings.lineColor, settings.lineWidth, canvasCtx);
 
       // Sync face mesh data in multiplayer mode
       if (isMultiplayer && room) {
+        // Calculate face bounds for proper scaling
+        const bounds = calculateFaceBounds(smoothedLandmarks);
+        
         room.send({
           type: 'faceMeshUpdate',
           landmarks: smoothedLandmarks,
+          bounds: bounds,
           clientId: room.party.client.id,
           username: room.party.client.username,
           settings: {
@@ -288,132 +220,77 @@ function onResults(results) {
   canvasCtx.restore();
 }
 
-// Initialize faceMesh before using it
-const faceMesh = new FaceMesh({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-  }
-});
-
-faceMesh.setOptions({
-  maxNumFaces: 1,
-  refineLandmarks: true,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
-
-faceMesh.onResults(onResults);
-
-let camera = new Camera(videoElement, {
-  onFrame: async () => {
-    await faceMesh.send({image: videoElement});
-  },
-  width: 1280,
-  height: 720,
-  facingMode: 'user'
-});
-
-// Update onResize function to handle scaling
-function onResize() {
-  canvasElement.width = window.innerWidth;
-  canvasElement.height = window.innerHeight;
+function calculateFaceBounds(landmarks) {
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
   
-  // Adjust face mesh options based on device
-  const isMobile = window.innerWidth < 768;
-  faceMesh.setOptions({
-    maxNumFaces: 1,
-    refineLandmarks: true,
-    minDetectionConfidence: isMobile ? 0.7 : 0.5,  // Higher confidence on mobile
-    minTrackingConfidence: isMobile ? 0.7 : 0.5
+  landmarks.forEach(point => {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
   });
   
-  // Update camera settings
-  if (camera) {
-    camera.stop();
-    camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await faceMesh.send({image: videoElement});
-      },
-      width: isMobile ? 640 : 1280,  // Lower resolution on mobile
-      height: isMobile ? 480 : 720,
-      facingMode: 'user'
-    });
-    camera.start();
-  }
+  return {
+    width: maxX - minX,
+    height: maxY - minY,
+    centerX: (minX + maxX) / 2,
+    centerY: (minY + maxY) / 2
+  };
 }
 
-// Adjust canvas size to match viewport
-window.addEventListener('resize', onResize);
-onResize();
+function drawFacialFeatures(landmarks, color, width, ctx) {
+  Object.values(FACE_CONNECTIONS).forEach(feature => {
+    drawFacialFeature(landmarks, feature, color, width, ctx);
+  });
+}
 
-let previousLandmarks = null;
-const smoothingFactor = 0.5;
-
-function smoothLandmarks(currentLandmarks, previousLandmarks) {
-  if (!previousLandmarks) return currentLandmarks;
+function updateRemoteFaceMesh(data) {
+  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
+  if (!remoteCanvas) return;
   
-  return currentLandmarks.map((landmark, i) => ({
-    x: previousLandmarks[i].x + (landmark.x - previousLandmarks[i].x) * smoothingFactor,
-    y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
-    z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * smoothingFactor
+  const remoteCtx = remoteCanvas.getContext('2d');
+  remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+  
+  // Get or generate user settings
+  let userColor, userGlow;
+  const savedSettings = userSettings.get(data.clientId);
+  if (savedSettings) {
+    userColor = savedSettings.lineColor;
+    userGlow = savedSettings.glowIntensity;
+  } else {
+    userColor = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`;
+    userGlow = settings.glowIntensity;
+  }
+  
+  // Scale the landmarks to match the canvas size while maintaining aspect ratio
+  const scaledLandmarks = scaleLandmarks(data.landmarks, data.bounds, remoteCanvas);
+  
+  // Draw the face mesh
+  remoteCtx.lineWidth = settings.lineWidth;
+  remoteCtx.strokeStyle = userColor;
+  remoteCtx.shadowColor = userColor;
+  remoteCtx.shadowBlur = userGlow;
+  
+  drawConnectors(scaledLandmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeatures(scaledLandmarks, userColor, settings.lineWidth, remoteCtx);
+}
+
+function scaleLandmarks(landmarks, bounds, canvas) {
+  // Calculate scale factor to maintain aspect ratio
+  const scaleX = canvas.width * 0.8; // Use 80% of canvas width
+  const scaleY = canvas.height * 0.8; // Use 80% of canvas height
+  const scale = Math.min(scaleX / bounds.width, scaleY / bounds.height);
+  
+  // Center offset
+  const offsetX = (canvas.width - bounds.width * scale) / 2;
+  const offsetY = (canvas.height - bounds.height * scale) / 2;
+  
+  return landmarks.map(point => ({
+    x: (point.x - bounds.centerX) * scale + canvas.width / 2,
+    y: (point.y - bounds.centerY) * scale + canvas.height / 2,
+    z: point.z * scale
   }));
-}
-
-function scaleLandmarksToViewport(landmarks) {
-  // Get viewport aspect ratio
-  const viewportAspectRatio = window.innerWidth / window.innerHeight;
-  
-  return landmarks.map(landmark => {
-    // Create a copy of the landmark
-    const scaled = { ...landmark };
-    
-    // Adjust x coordinates based on viewport aspect ratio
-    if (viewportAspectRatio > 1) {
-      // Landscape: scale horizontally
-      const scale = 1 / viewportAspectRatio;
-      const offset = (1 - scale) / 2;
-      scaled.x = (landmark.x * scale) + offset;
-    } else {
-      // Portrait: scale vertically
-      const scale = viewportAspectRatio;
-      const offset = (1 - scale) / 2;
-      scaled.y = (landmark.y * scale) + offset;
-    }
-    
-    return scaled;
-  });
-}
-
-function drawConnectors(landmarks, connections, color, width, ctx = canvasCtx) {
-  ctx.lineWidth = width;
-  ctx.strokeStyle = color;
-  
-  connections.forEach(([i, j]) => {
-    const start = landmarks[i];
-    const end = landmarks[j];
-    
-    ctx.beginPath();
-    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-    ctx.stroke();
-  });
-}
-
-function drawFacialFeature(landmarks, connections, color, width, ctx = canvasCtx) {
-  ctx.lineWidth = width;
-  ctx.strokeStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 5;
-  
-  connections.forEach(([i, j]) => {
-    const start = landmarks[i];
-    const end = landmarks[j];
-    
-    ctx.beginPath();
-    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-    ctx.stroke();
-  });
 }
 
 // Facial feature connections
@@ -466,3 +343,80 @@ const FACEMESH_FACE_OVAL = [
   [172, 58], [58, 132], [132, 93], [93, 234], [234, 127], [127, 162],
   [162, 21], [21, 54], [54, 103], [103, 67], [67, 109], [109, 10]
 ];
+
+let previousLandmarks = null;
+const smoothingFactor = 0.5;
+
+// Adjust canvas size to match viewport
+function onResize() {
+  canvasElement.width = window.innerWidth;
+  canvasElement.height = window.innerHeight;
+}
+window.addEventListener('resize', onResize);
+onResize();
+
+function smoothLandmarks(currentLandmarks, previousLandmarks) {
+  if (!previousLandmarks) return currentLandmarks;
+  
+  return currentLandmarks.map((landmark, i) => ({
+    x: previousLandmarks[i].x + (landmark.x - previousLandmarks[i].x) * smoothingFactor,
+    y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
+    z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * smoothingFactor
+  }));
+}
+
+function drawConnectors(landmarks, connections, color, width, ctx = canvasCtx) {
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  
+  connections.forEach(([i, j]) => {
+    const start = landmarks[i];
+    const end = landmarks[j];
+    
+    ctx.beginPath();
+    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+    ctx.stroke();
+  });
+}
+
+function drawFacialFeature(landmarks, connections, color, width, ctx = canvasCtx) {
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 5;
+  
+  connections.forEach(([i, j]) => {
+    const start = landmarks[i];
+    const end = landmarks[j];
+    
+    ctx.beginPath();
+    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+    ctx.stroke();
+  });
+}
+
+const faceMesh = new FaceMesh({
+  locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+  }
+});
+
+faceMesh.setOptions({
+  maxNumFaces: 1,
+  refineLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(onResults);
+
+const camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await faceMesh.send({image: videoElement});
+  },
+  width: 1280,
+  height: 720,
+  facingMode: 'user'
+});
