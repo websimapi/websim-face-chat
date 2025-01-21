@@ -37,30 +37,34 @@ startButton.addEventListener('click', () => {
   container.style.display = 'block';
   
   // Handle background prompt if provided
-  if (backgroundPromptInput.value.trim()) {
+  const promptText = backgroundPromptInput.value.trim();
+  if (promptText) {
     // Remove any existing background image
     const existingBg = document.getElementById('background-image');
     if (existingBg) {
       existingBg.remove();
     }
     
+    // Create new background image
     const backgroundImg = document.createElement('img');
     backgroundImg.id = 'background-image';
-    // Use the exact prompt as the alt text for accessibility
-    backgroundImg.alt = backgroundPromptInput.value;
-    // Construct the Unsplash URL with the exact prompt
-    backgroundImg.src = `https://source.unsplash.com/random/?${encodeURIComponent(backgroundPromptInput.value)}`;
-    // Set styles for full page coverage
-    backgroundImg.style.cssText = `
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      z-index: -1;
-    `;
-    container.insertBefore(backgroundImg, container.firstChild);
+    backgroundImg.alt = promptText;
+    // Use Unsplash source with the prompt
+    backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(promptText)}`;
+    
+    // Add load event to ensure image is visible
+    backgroundImg.onload = () => {
+      console.log('Background image loaded');
+      backgroundImg.style.display = 'block';
+    };
+    
+    // Add error handling
+    backgroundImg.onerror = () => {
+      console.error('Failed to load background image');
+    };
+    
+    // Insert the background image as first child of container
+    document.body.insertBefore(backgroundImg, document.body.firstChild);
   }
   
   // Start camera
