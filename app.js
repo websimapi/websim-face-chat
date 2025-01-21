@@ -23,7 +23,7 @@ function smoothLandmarks(currentLandmarks, previousLandmarks) {
   }));
 }
 
-// Define face feature connections for VTuber style
+// Define face feature connections for VTuber style with enhanced nose and mouth
 const faceConnections = [
   // Jaw line
   [234,127,162,21,54,103,67,109,10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234],
@@ -40,8 +40,20 @@ const faceConnections = [
   // Right eyebrow
   [336,296,334,293,300,276,283,282,295,285],
   
-  // Nose
+  // Nose bridge and tip
   [168,193,245,188,174,217,126,142,130,97,98,129,49,131,134,236,3,196],
+  
+  // Nose bottom and nostrils
+  [79,166,75,60,20,238,239,79],
+  
+  // Outer lips
+  [61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,61],
+  
+  // Inner lips
+  [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95,78],
+  
+  // Nose contour
+  [122,6,351,419,456,363,360,279,358,327,326,2,97,98,129,49,131,134,236,3,196,122],
 ];
 
 function onResults(results) {
@@ -54,17 +66,25 @@ function onResults(results) {
       previousLandmarks = smoothedLandmarks;
 
       // Draw face features
-      canvasCtx.lineWidth = 3;
+      canvasCtx.lineWidth = 2.5;
       canvasCtx.lineCap = 'round';
       canvasCtx.lineJoin = 'round';
       
-      // Draw main features with glow effect
+      // Draw main features with enhanced glow effect
       canvasCtx.shadowColor = '#00ff00';
-      canvasCtx.shadowBlur = 15;
+      canvasCtx.shadowBlur = 12;
       canvasCtx.strokeStyle = '#ffffff';
       
-      faceConnections.forEach(connection => {
+      faceConnections.forEach((connection, index) => {
         canvasCtx.beginPath();
+        
+        // Adjust line width for different features
+        if (index >= 6) { // Nose and mouth features
+          canvasCtx.lineWidth = 2;
+        } else {
+          canvasCtx.lineWidth = 2.5;
+        }
+        
         connection.forEach((index, i) => {
           const point = smoothedLandmarks[index];
           const x = point.x * canvasElement.width;
