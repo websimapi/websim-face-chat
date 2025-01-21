@@ -6,40 +6,68 @@ let settings = {
 };
 
 // DOM Elements
-const videoElement = document.getElementById('input');
-const canvasElement = document.getElementById('output');
-const canvasCtx = canvasElement.getContext('2d');
-const settingsModal = document.getElementById('settings-modal');
-const container = document.querySelector('.container');
+let videoElement, canvasElement, canvasCtx, settingsModal, container;
+let lineColorInput, lineWidthInput, lineWidthValue, glowIntensityInput, glowIntensityValue;
+let backgroundPromptInput, startButton, multiplayerModeCheckbox;
 
-// Settings inputs
-const lineColorInput = document.getElementById('lineColor');
-const lineWidthInput = document.getElementById('lineWidth');
-const lineWidthValue = document.getElementById('lineWidthValue');
-const glowIntensityInput = document.getElementById('glowIntensity');
-const glowIntensityValue = document.getElementById('glowIntensityValue');
-const backgroundPromptInput = document.getElementById('backgroundPrompt');
-const startButton = document.getElementById('startButton');
-const multiplayerModeCheckbox = document.getElementById('multiplayerMode');
-const gameModeCheckbox = document.getElementById('gameMode');
+// Wait for DOM to be fully loaded
+document.addEventListener('DOMContentLoaded', () => {
+  // Initialize DOM elements
+  videoElement = document.getElementById('input');
+  canvasElement = document.getElementById('output');
+  canvasCtx = canvasElement.getContext('2d');
+  settingsModal = document.getElementById('settings-modal');
+  container = document.querySelector('.container');
+
+  // Settings inputs
+  lineColorInput = document.getElementById('lineColor');
+  lineWidthInput = document.getElementById('lineWidth');
+  lineWidthValue = document.getElementById('lineWidthValue');
+  glowIntensityInput = document.getElementById('glowIntensity');
+  glowIntensityValue = document.getElementById('glowIntensityValue');
+  backgroundPromptInput = document.getElementById('backgroundPrompt');
+  startButton = document.getElementById('startButton');
+  multiplayerModeCheckbox = document.getElementById('multiplayerMode');
+
+  // Settings event listeners
+  lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
+  lineWidthInput.addEventListener('input', (e) => {
+    settings.lineWidth = e.target.value;
+    lineWidthValue.textContent = e.target.value;
+  });
+  glowIntensityInput.addEventListener('input', (e) => {
+    settings.glowIntensity = e.target.value;
+    glowIntensityValue.textContent = e.target.value;
+  });
+
+  // Start button event listener
+  startButton.addEventListener('click', startApplication);
+
+  // Initialize camera and face mesh after DOM is loaded
+  initializeFaceMeshAndCamera();
+});
 
 let room = null;
 let isMultiplayer = false;
-let game = null;
-
-// Add gameMode checkbox reference
-// Settings event listeners
-lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
-lineWidthInput.addEventListener('input', (e) => {
-  settings.lineWidth = e.target.value;
-  lineWidthValue.textContent = e.target.value;
-});
-glowIntensityInput.addEventListener('input', (e) => {
-  settings.glowIntensity = e.target.value;
-  glowIntensityValue.textContent = e.target.value;
-});
-
 let imageCounter = 0;
+
+async function startApplication() {
+  settingsModal.style.display = 'none';
+  container.style.display = 'block';
+  
+  if (backgroundPromptInput.value.trim()) {
+    loadBackgroundImage(backgroundPromptInput.value.trim());
+  }
+  
+  isMultiplayer = multiplayerModeCheckbox.checked;
+  
+  if (isMultiplayer) {
+    room = new WebsimSocket();
+    setupMultiplayer();
+  }
+  
+  camera.start();
+}
 
 function loadBackgroundImage(prompt) {
   // Remove any existing background images
@@ -60,32 +88,7 @@ function loadBackgroundImage(prompt) {
   document.body.insertBefore(backgroundImg, document.body.firstChild);
 }
 
-startButton.addEventListener('click', async () => {
-  settingsModal.style.display = 'none';
-  container.style.display = 'block';
-  
-  if (backgroundPromptInput.value.trim()) {
-    loadBackgroundImage(backgroundPromptInput.value.trim());
-  }
-  
-  isMultiplayer = multiplayerModeCheckbox.checked;
-  
-  if (isMultiplayer) {
-    room = new WebsimSocket();
-    setupMultiplayer();
-  }
-  
-  if (gameModeCheckbox.checked) {
-    const gameCanvas = document.getElementById('gameCanvas');
-    game = new Game(gameCanvas, {
-      mouthOpen: false,
-      mouthCenter: { x: 0, y: 0 }
-    }, isMultiplayer, room);
-    game.start();
-  }
-  
-  camera.start();
-});
+let game = null;
 
 function setupMultiplayer() {
   const playerList = document.getElementById('playerList');
@@ -397,26 +400,30 @@ function drawFacialFeature(landmarks, connections, color, width, ctx = canvasCtx
   });
 }
 
-const faceMesh = new FaceMesh({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-  }
-});
+let faceMesh, camera;
 
-faceMesh.setOptions({
-  maxNumFaces: 1,
-  refineLandmarks: true,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
+function initializeFaceMeshAndCamera() {
+  faceMesh = new FaceMesh({
+    locateFile: (file) => {
+      return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+    }
+  });
 
-faceMesh.onResults(onResults);
+  faceMesh.setOptions({
+    maxNumFaces: 1,
+    refineLandmarks: true,
+    minDetectionConfidence: 0.5,
+    minTrackingConfidence: 0.5
+  });
 
-const camera = new Camera(videoElement, {
-  onFrame: async () => {
-    await faceMesh.send({image: videoElement});
-  },
-  width: 1280,
-  height: 720,
-  facingMode: 'user'
-});
+  faceMesh.onResults(onResults);
+
+  camera = new Camera(videoElement, {
+    onFrame: async () => {
+      await faceMesh.send({image: videoElement});
+    },
+    width: 1280,
+    height: 720,
+    facingMode: 'user'
+  });
+}
