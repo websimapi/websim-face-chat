@@ -23,6 +23,7 @@ canvas {
   height: 100%;
   transform: scaleX(-1);
   background: transparent;
+  cursor: pointer;
 }
 
 #gameCanvas {

@@ -42,6 +42,13 @@ class Game {
       }
     ];
     
+    // Add pause state
+    this.isPaused = false;
+    
+    // Add pause screen event listeners
+    window.addEventListener('blur', () => this.pause());
+    window.addEventListener('focus', () => this.unpause());
+    
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -72,6 +79,7 @@ class Game {
   
   drawBurger(x, y, radius) {
     this.ctx.save();
+    
     // Bun top
     this.ctx.beginPath();
     this.ctx.fillStyle = '#F4A460';
@@ -88,11 +96,13 @@ class Game {
     this.ctx.fillStyle = '#8B4513';
     this.ctx.fillRect(x - radius, y + radius/4, radius * 2, radius/3);
     
-    // Bun bottom
+    // Bun bottom (improved)
     this.ctx.beginPath();
     this.ctx.fillStyle = '#F4A460';
-    this.ctx.arc(x, y + radius/2, radius, 1.25 * Math.PI, 1.75 * Math.PI, false);
+    this.ctx.arc(x, y + radius/2, radius, 0, Math.PI, false);
+    this.ctx.rect(x - radius, y + radius/2, radius * 2, radius/4);
     this.ctx.fill();
+    
     this.ctx.restore();
   }
 
@@ -254,8 +264,32 @@ class Game {
     }
   }
   
+  pause() {
+    if (this.gameActive) {
+      this.isPaused = true;
+      // Draw pause screen
+      this.ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      
+      this.ctx.fillStyle = '#FFFFFF';
+      this.ctx.font = '48px Arial';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('PAUSED', this.canvas.width / 2, this.canvas.height / 2);
+      this.ctx.font = '24px Arial';
+      this.ctx.fillText('Click to resume', this.canvas.width / 2, this.canvas.height / 2 + 50);
+    }
+  }
+  
+  unpause() {
+    if (this.gameActive && this.isPaused) {
+      this.isPaused = false;
+      this.gameLoop();
+    }
+  }
+  
   gameLoop = () => {
-    if (!this.gameActive) return;
+    if (!this.gameActive || this.isPaused) return;
     
     this.update();
     this.draw();
