@@ -25,19 +25,19 @@ function smoothLandmarks(currentLandmarks, previousLandmarks) {
 
 // Facial feature connections
 const FACE_CONNECTIONS = {
-  // Left eye - updated for more natural shape
+  // Left eye remains the same
   leftEye: [
     [263, 249], [249, 390], [390, 373], [373, 374], [374, 380], 
     [380, 381], [381, 382], [382, 362], [263, 466], [466, 388], 
     [388, 387], [387, 386], [386, 385], [385, 384], [384, 398], [398, 362]
   ],
-  // Right eye - updated for more natural shape
+  // Right eye remains the same
   rightEye: [
     [33, 7], [7, 163], [163, 144], [144, 145], [145, 153], 
     [153, 154], [154, 155], [155, 133], [33, 246], [246, 161], 
     [161, 160], [160, 159], [159, 158], [158, 157], [157, 173], [173, 133]
   ],
-  // Rest of the facial features remain the same
+  // Eyebrows remain the same
   leftEyebrow: [
     [70, 63], [63, 105], [105, 66], [66, 107], [107, 55], [55, 65], [65, 52], 
     [52, 53], [53, 46]
@@ -46,11 +46,13 @@ const FACE_CONNECTIONS = {
     [300, 293], [293, 334], [334, 296], [296, 336], [336, 285], [285, 295], 
     [295, 282], [282, 283], [283, 276]
   ],
+  // Updated nose to stop above the lip
   nose: [
     [168, 6], [6, 197], [197, 195], [195, 5], [5, 4], [4, 1], [1, 19], [19, 94], 
     [94, 2], [2, 164], [164, 0], [0, 11], [11, 12], [12, 13], [13, 14], [14, 15], 
-    [15, 16], [16, 17], [17, 18], [18, 200], [200, 199], [199, 175]
+    [15, 16], [16, 17]  // Removed the connection to point 18 and beyond
   ],
+  // Lips remain the same
   lipsOuter: [
     [61, 146], [146, 91], [91, 181], [181, 84], [84, 17], [17, 314], [314, 405], 
     [405, 321], [321, 375], [375, 291], [61, 185], [185, 40], [40, 39], [39, 37],
