@@ -23,44 +23,32 @@ function smoothLandmarks(currentLandmarks, previousLandmarks) {
   }));
 }
 
-// Enhanced face feature connections for VTuber style
-const faceConnections = [
-  // Jaw line - refined to be smoother
-  [234,127,162,21,54,103,67,109,10,338,297,332,284,251,389,356,454,323,361,288,397,365,379,378,400,377,152,148,176,149,150,136,172,58,132,93,234],
-  
-  // Left eye - added more detail
-  [33,7,163,144,145,153,154,155,133,173,157,158,159,160,161,246,33],
-  [133,155,154,153,145,144,163,7,33,246,161,160,159,158,157,173,133],
-  
-  // Right eye - added more detail
-  [362,382,381,380,374,373,390,249,263,466,388,387,386,385,384,398,362],
-  [390,373,374,380,381,382,362,398,384,385,386,387,388,466,263,249,390],
-  
-  // Left eyebrow - refined
-  [70,63,105,66,107,55,65,52,53,46,70],
-  
-  // Right eyebrow - refined
-  [336,296,334,293,300,276,283,282,295,285,336],
-  
-  // Nose bridge and tip - improved detail
-  [168,193,245,188,174,217,126,142,130,97,98,129,49,131,134,236,3,196],
-  
-  // Nose bottom and nostrils - fixed stray lines
-  [79,166,75,60,20,238,239,79],
-  
-  // Outer lips - enhanced detail
-  [61,146,91,181,84,17,314,405,321,375,291,308,324,318,402,317,14,87,178,88,95,61],
-  
-  // Inner lips - refined shape
-  [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95,78],
-  
-  // Additional face details
-  [193,168,417,465,414,286,258,199,208,428,262,431,416,434,430,431,262,428,208,199],
-  [199,208,428,262,431,430,434,416,433,416,434,430,431,262,428,208,199],
-  
-  // Enhanced cheek contours
-  [425,205,203,151,200,199,175,152,148,176,149,150,136,172,58,132,93,234,127,162,21,54],
-  [425,205,203,151,200,199,175,152,148,176,149,150,136,172,58,132,93]
+// Standard MediaPipe face mesh connections
+const FACEMESH_TESSELATION = [
+  [127, 34], [34, 139], [139, 127], [11, 0], [0, 37], [37, 11],
+  [232, 231], [231, 120], [120, 232], [72, 37], [37, 39], [39, 72],
+  [128, 121], [121, 47], [47, 128], [232, 121], [121, 128], [128, 232],
+  [104, 69], [69, 67], [67, 104], [175, 171], [171, 148], [148, 175],
+  [118, 50], [50, 101], [101, 118], [73, 39], [39, 40], [40, 73],
+  [9, 151], [151, 108], [108, 9], [48, 115], [115, 131], [131, 48],
+  [194, 204], [204, 211], [211, 194], [74, 40], [40, 185], [185, 74],
+  [80, 42], [42, 183], [183, 80], [40, 92], [92, 186], [186, 40],
+  [230, 229], [229, 118], [118, 230], [202, 212], [212, 214], [214, 202],
+  [83, 18], [18, 17], [17, 83], [76, 61], [61, 146], [146, 76],
+  [160, 29], [29, 30], [30, 160], [56, 157], [157, 173], [173, 56],
+  [106, 204], [204, 194], [194, 106], [135, 214], [214, 192], [192, 135],
+  [187, 216], [216, 207], [207, 187], [151, 122], [122, 141], [141, 151],
+  [158, 159], [159, 160], [160, 158], [170, 171], [171, 175], [175, 170]
+];
+
+// Face contours for a more defined look
+const FACEMESH_FACE_OVAL = [
+  [10, 338], [338, 297], [297, 332], [332, 284], [284, 251], [251, 389],
+  [389, 356], [356, 454], [454, 323], [323, 361], [361, 288], [288, 397],
+  [397, 365], [365, 379], [379, 378], [378, 400], [400, 377], [377, 152],
+  [152, 148], [148, 176], [176, 149], [149, 150], [150, 136], [136, 172],
+  [172, 58], [58, 132], [132, 93], [93, 234], [234, 127], [127, 162],
+  [162, 21], [21, 54], [54, 103], [103, 67], [67, 109], [109, 10]
 ];
 
 function onResults(results) {
@@ -72,37 +60,35 @@ function onResults(results) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
 
-      // Draw face features
-      canvasCtx.lineWidth = 2.5;
-      canvasCtx.lineCap = 'round';
-      canvasCtx.lineJoin = 'round';
+      // Draw face mesh
+      canvasCtx.lineWidth = 1;
+      canvasCtx.strokeStyle = 'rgba(0, 255, 0, 0.5)';
+      canvasCtx.fillStyle = 'rgba(0, 255, 0, 0.1)';
       
-      // Draw main features with enhanced glow effect
-      canvasCtx.shadowColor = '#00ff00';
-      canvasCtx.shadowBlur = 12;
-      canvasCtx.strokeStyle = '#ffffff';
-      
-      faceConnections.forEach((connection, index) => {
+      // Draw tesselation
+      FACEMESH_TESSELATION.forEach(([i, j]) => {
+        const start = smoothedLandmarks[i];
+        const end = smoothedLandmarks[j];
+        
         canvasCtx.beginPath();
+        canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+        canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+        canvasCtx.stroke();
+      });
+
+      // Draw face contour with glow
+      canvasCtx.lineWidth = 2;
+      canvasCtx.strokeStyle = '#00ff00';
+      canvasCtx.shadowColor = '#00ff00';
+      canvasCtx.shadowBlur = 10;
+      
+      FACEMESH_FACE_OVAL.forEach(([i, j]) => {
+        const start = smoothedLandmarks[i];
+        const end = smoothedLandmarks[j];
         
-        // Adjust line width for different features
-        if (index >= 6) { // Nose and mouth features
-          canvasCtx.lineWidth = 2;
-        } else {
-          canvasCtx.lineWidth = 2.5;
-        }
-        
-        connection.forEach((index, i) => {
-          const point = smoothedLandmarks[index];
-          const x = point.x * canvasElement.width;
-          const y = point.y * canvasElement.height;
-          
-          if (i === 0) {
-            canvasCtx.moveTo(x, y);
-          } else {
-            canvasCtx.lineTo(x, y);
-          }
-        });
+        canvasCtx.beginPath();
+        canvasCtx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+        canvasCtx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
         canvasCtx.stroke();
       });
     }
