@@ -1,6 +1,53 @@
+// Settings variables
+let settings = {
+  lineColor: '#00ff00',
+  lineWidth: 2,
+  glowIntensity: 10
+};
+
+// DOM Elements
 const videoElement = document.getElementById('input');
 const canvasElement = document.getElementById('output');
 const canvasCtx = canvasElement.getContext('2d');
+const settingsModal = document.getElementById('settings-modal');
+const container = document.querySelector('.container');
+
+// Settings inputs
+const lineColorInput = document.getElementById('lineColor');
+const lineWidthInput = document.getElementById('lineWidth');
+const lineWidthValue = document.getElementById('lineWidthValue');
+const glowIntensityInput = document.getElementById('glowIntensity');
+const glowIntensityValue = document.getElementById('glowIntensityValue');
+const backgroundPromptInput = document.getElementById('backgroundPrompt');
+const startButton = document.getElementById('startButton');
+
+// Settings event listeners
+lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
+lineWidthInput.addEventListener('input', (e) => {
+  settings.lineWidth = e.target.value;
+  lineWidthValue.textContent = e.target.value;
+});
+glowIntensityInput.addEventListener('input', (e) => {
+  settings.glowIntensity = e.target.value;
+  glowIntensityValue.textContent = e.target.value;
+});
+
+startButton.addEventListener('click', () => {
+  settingsModal.style.display = 'none';
+  container.style.display = 'block';
+  
+  // Handle background prompt if provided
+  if (backgroundPromptInput.value.trim()) {
+    const backgroundImg = document.createElement('img');
+    backgroundImg.id = 'background-image';
+    backgroundImg.src = `https://source.unsplash.com/1600x900/?${encodeURIComponent(backgroundPromptInput.value)}`;
+    backgroundImg.style.cssText = 'position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: -1;';
+    container.insertBefore(backgroundImg, container.firstChild);
+  }
+  
+  // Start camera
+  camera.start();
+});
 
 let previousLandmarks = null;
 const smoothingFactor = 0.5;
@@ -83,23 +130,22 @@ function onResults(results) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
 
-      // Draw face outline
-      canvasCtx.lineWidth = 2;
-      canvasCtx.strokeStyle = '#00ff00';
-      canvasCtx.shadowColor = '#00ff00';
-      canvasCtx.shadowBlur = 10;
+      canvasCtx.lineWidth = settings.lineWidth;
+      canvasCtx.strokeStyle = settings.lineColor;
+      canvasCtx.shadowColor = settings.lineColor;
+      canvasCtx.shadowBlur = settings.glowIntensity;
       
       // Draw face outline
-      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, '#00ff00', 2);
+      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth);
 
       // Draw facial features
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, '#00ff00', 1.5);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, '#00ff00', 1.5);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, '#00ff00', 1.5);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, '#00ff00', 1.5);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, '#00ff00', 1.5);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, '#00ff00', 1.5);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, '#00ff00', 1.5);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth);
     }
   }
   canvasCtx.restore();
@@ -160,5 +206,3 @@ const camera = new Camera(videoElement, {
   height: 720,
   facingMode: 'user'
 });
-
-camera.start();
