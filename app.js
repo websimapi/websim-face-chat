@@ -288,31 +288,30 @@ function onResults(results) {
   canvasCtx.restore();
 }
 
-// Add new function to scale landmarks to viewport
-function scaleLandmarksToViewport(landmarks) {
-  // Get viewport aspect ratio
-  const viewportAspectRatio = window.innerWidth / window.innerHeight;
-  
-  return landmarks.map(landmark => {
-    // Create a copy of the landmark
-    const scaled = { ...landmark };
-    
-    // Adjust x coordinates based on viewport aspect ratio
-    if (viewportAspectRatio > 1) {
-      // Landscape: scale horizontally
-      const scale = 1 / viewportAspectRatio;
-      const offset = (1 - scale) / 2;
-      scaled.x = (landmark.x * scale) + offset;
-    } else {
-      // Portrait: scale vertically
-      const scale = viewportAspectRatio;
-      const offset = (1 - scale) / 2;
-      scaled.y = (landmark.y * scale) + offset;
-    }
-    
-    return scaled;
-  });
-}
+// Initialize faceMesh before using it
+const faceMesh = new FaceMesh({
+  locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+  }
+});
+
+faceMesh.setOptions({
+  maxNumFaces: 1,
+  refineLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(onResults);
+
+let camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await faceMesh.send({image: videoElement});
+  },
+  width: 1280,
+  height: 720,
+  facingMode: 'user'
+});
 
 // Update onResize function to handle scaling
 function onResize() {
@@ -343,12 +342,12 @@ function onResize() {
   }
 }
 
-let previousLandmarks = null;
-const smoothingFactor = 0.5;
-
 // Adjust canvas size to match viewport
 window.addEventListener('resize', onResize);
 onResize();
+
+let previousLandmarks = null;
+const smoothingFactor = 0.5;
 
 function smoothLandmarks(currentLandmarks, previousLandmarks) {
   if (!previousLandmarks) return currentLandmarks;
@@ -358,6 +357,31 @@ function smoothLandmarks(currentLandmarks, previousLandmarks) {
     y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
     z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * smoothingFactor
   }));
+}
+
+function scaleLandmarksToViewport(landmarks) {
+  // Get viewport aspect ratio
+  const viewportAspectRatio = window.innerWidth / window.innerHeight;
+  
+  return landmarks.map(landmark => {
+    // Create a copy of the landmark
+    const scaled = { ...landmark };
+    
+    // Adjust x coordinates based on viewport aspect ratio
+    if (viewportAspectRatio > 1) {
+      // Landscape: scale horizontally
+      const scale = 1 / viewportAspectRatio;
+      const offset = (1 - scale) / 2;
+      scaled.x = (landmark.x * scale) + offset;
+    } else {
+      // Portrait: scale vertically
+      const scale = viewportAspectRatio;
+      const offset = (1 - scale) / 2;
+      scaled.y = (landmark.y * scale) + offset;
+    }
+    
+    return scaled;
+  });
 }
 
 function drawConnectors(landmarks, connections, color, width, ctx = canvasCtx) {
@@ -391,30 +415,6 @@ function drawFacialFeature(landmarks, connections, color, width, ctx = canvasCtx
     ctx.stroke();
   });
 }
-
-const faceMesh = new FaceMesh({
-  locateFile: (file) => {
-    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-  }
-});
-
-faceMesh.setOptions({
-  maxNumFaces: 1,
-  refineLandmarks: true,
-  minDetectionConfidence: 0.5,
-  minTrackingConfidence: 0.5
-});
-
-faceMesh.onResults(onResults);
-
-const camera = new Camera(videoElement, {
-  onFrame: async () => {
-    await faceMesh.send({image: videoElement});
-  },
-  width: 1280,
-  height: 720,
-  facingMode: 'user'
-});
 
 // Facial feature connections
 const FACE_CONNECTIONS = {
