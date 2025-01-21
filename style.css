@@ -107,7 +107,7 @@ h2 {
   text-align: center;
 }
 
-#background-image {
+[id^="background-image-"] {
   position: fixed;
   top: 0;
   left: 0;
@@ -119,6 +119,6 @@ h2 {
   transition: opacity 1s ease;
 }
 
-#background-image.loaded {
+[id^="background-image-"].loaded {
   opacity: 1;
 }

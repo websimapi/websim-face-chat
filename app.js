@@ -32,15 +32,17 @@ glowIntensityInput.addEventListener('input', (e) => {
   glowIntensityValue.textContent = e.target.value;
 });
 
-function loadBackgroundImage(prompt) {
-  // Remove any existing background image
-  const existingBg = document.getElementById('background-image');
-  if (existingBg) {
-    existingBg.remove();
-  }
+let imageCounter = 0;
 
+function loadBackgroundImage(prompt) {
+  // Remove any existing background images
+  document.querySelectorAll('[id^="background-image-"]').forEach(img => img.remove());
+
+  // Create new unique image element
   const backgroundImg = document.createElement('img');
-  backgroundImg.id = 'background-image';
+  const uniqueId = `background-image-${imageCounter++}`;
+  backgroundImg.id = uniqueId;
+  backgroundImg.alt = prompt; // Set alt text to exact prompt
   backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(prompt)}`;
   
   // Add loaded class when image is loaded
