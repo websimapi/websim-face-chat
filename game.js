@@ -10,9 +10,11 @@ class Game {
     this.gameActive = false;
     this.scoreElement = document.getElementById('score');
     
-    // Add mouth state tracking
+    // Enhanced mouth state tracking
     this.mouthWasClosed = true;
-    this.mouthOpenThreshold = 30; // Threshold for mouth openness
+    this.mouthOpenThreshold = 30;
+    this.readyToChomp = false; // New state to track chomp readiness
+    this.lastMouthState = false; // Track previous mouth state
     
     this.itemTypes = [
       { type: 'good', color: '#00ff00', points: 10, radius: 15, probability: 0.7 },
@@ -66,7 +68,6 @@ class Game {
   checkMouthCollision(object) {
     if (!this.faceMeshData.mouthCenter || !object.canBeEaten) return false;
     
-    // Get current mouth state
     const isMouthOpen = this.faceMeshData.mouthOpen;
     
     // Calculate distance between mouth and object
@@ -78,16 +79,25 @@ class Game {
     // Check if object is within mouth area
     const isInMouthArea = distance < object.radius + 20;
     
-    // Implement mouth closing logic
-    if (isInMouthArea && isMouthOpen && this.mouthWasClosed) {
-      this.mouthWasClosed = false; // Reset mouth closed state
-      return true;
+    // Detect mouth closing action
+    if (isInMouthArea) {
+      // If mouth was open and is now closed, and we were ready to chomp
+      if (!isMouthOpen && this.lastMouthState && this.readyToChomp) {
+        this.readyToChomp = false; // Reset chomp readiness
+        return true; // Successful chomp
+      }
+      
+      // If mouth is open and in position, get ready to chomp
+      if (isMouthOpen) {
+        this.readyToChomp = true;
+      }
+    } else {
+      // Reset chomp readiness if object is not in mouth area
+      this.readyToChomp = false;
     }
     
-    // Update mouth closed state
-    if (!isMouthOpen) {
-      this.mouthWasClosed = true;
-    }
+    // Update last mouth state
+    this.lastMouthState = isMouthOpen;
     
     return false;
   }
