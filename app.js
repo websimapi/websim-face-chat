@@ -38,10 +38,28 @@ startButton.addEventListener('click', () => {
   
   // Handle background prompt if provided
   if (backgroundPromptInput.value.trim()) {
+    // Remove any existing background image
+    const existingBg = document.getElementById('background-image');
+    if (existingBg) {
+      existingBg.remove();
+    }
+    
     const backgroundImg = document.createElement('img');
     backgroundImg.id = 'background-image';
-    backgroundImg.src = `https://source.unsplash.com/1600x900/?${encodeURIComponent(backgroundPromptInput.value)}`;
-    backgroundImg.style.cssText = 'position: absolute; width: 100%; height: 100%; object-fit: cover; z-index: -1;';
+    // Use the exact prompt as the alt text for accessibility
+    backgroundImg.alt = backgroundPromptInput.value;
+    // Construct the Unsplash URL with the exact prompt
+    backgroundImg.src = `https://source.unsplash.com/random/?${encodeURIComponent(backgroundPromptInput.value)}`;
+    // Set styles for full page coverage
+    backgroundImg.style.cssText = `
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: -1;
+    `;
     container.insertBefore(backgroundImg, container.firstChild);
   }
   
