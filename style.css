@@ -70,7 +70,21 @@ label {
   color: #ccc;
 }
 
-input[type="color"],
+.color-settings {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+input[type="color"] {
+  width: 50px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
 input[type="range"],
 input[type="text"] {
   width: 100%;
@@ -104,6 +118,10 @@ input[type="text"] {
 span {
   margin-left: 1rem;
   color: #ccc;
+}
+
+label[for="glowColor"] {
+  margin-left: 1rem;
 }
 
 h2 {

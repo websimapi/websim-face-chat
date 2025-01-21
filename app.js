@@ -1,6 +1,7 @@
 // Settings variables
 let settings = {
   lineColor: '#00ff00',
+  glowColor: '#00ff00',
   lineWidth: 2,
   glowIntensity: 10
 };
@@ -20,6 +21,7 @@ const glowIntensityInput = document.getElementById('glowIntensity');
 const glowIntensityValue = document.getElementById('glowIntensityValue');
 const backgroundPromptInput = document.getElementById('backgroundPrompt');
 const startButton = document.getElementById('startButton');
+const glowColorInput = document.getElementById('glowColor');
 
 // Add gameMode checkbox reference
 const gameModeCheckbox = document.getElementById('gameMode');
@@ -29,14 +31,34 @@ let isMultiplayer = false;
 let game = null;
 
 // Settings event listeners
-lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
+lineColorInput.addEventListener('input', (e) => {
+  settings.lineColor = e.target.value;
+  if (isMultiplayer && room) {
+    syncUserSettings();
+  }
+});
+
+glowColorInput.addEventListener('input', (e) => {
+  settings.glowColor = e.target.value;
+  if (isMultiplayer && room) {
+    syncUserSettings();
+  }
+});
+
 lineWidthInput.addEventListener('input', (e) => {
   settings.lineWidth = e.target.value;
   lineWidthValue.textContent = e.target.value;
+  if (isMultiplayer && room) {
+    syncUserSettings();
+  }
 });
+
 glowIntensityInput.addEventListener('input', (e) => {
   settings.glowIntensity = e.target.value;
   glowIntensityValue.textContent = e.target.value;
+  if (isMultiplayer && room) {
+    syncUserSettings();
+  }
 });
 
 let imageCounter = 0;
@@ -60,102 +82,37 @@ function loadBackgroundImage(prompt) {
   document.body.insertBefore(backgroundImg, document.body.firstChild);
 }
 
-let faceMesh = null;
-let camera = null;
-
-// Function to show error message
-function showError(message) {
-  const errorElement = document.getElementById('error-message');
-  errorElement.textContent = message;
-  errorElement.style.display = 'block';
-  setTimeout(() => {
-    errorElement.style.display = 'none';
-  }, 5000);
-}
-
-// Initialize FaceMesh with error handling
-async function initializeFaceMesh() {
-  try {
-    faceMesh = new FaceMesh({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
-      }
-    });
-
-    await faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-
-    faceMesh.onResults(onResults);
-    return true;
-  } catch (error) {
-    console.error('FaceMesh initialization error:', error);
-    showError('Failed to initialize face tracking. Please refresh the page and try again.');
-    return false;
-  }
-}
-
-// Initialize camera with error handling
-async function initializeCamera() {
-  try {
-    camera = new Camera(videoElement, {
-      onFrame: async () => {
-        if (faceMesh) {
-          await faceMesh.send({image: videoElement});
-        }
-      },
-      width: 1280,
-      height: 720,
-      facingMode: 'user'
-    });
-    return true;
-  } catch (error) {
-    console.error('Camera initialization error:', error);
-    showError('Failed to access camera. Please make sure you have granted camera permissions.');
-    return false;
-  }
-}
-
 startButton.addEventListener('click', async () => {
-  try {
-    const faceMeshInitialized = await initializeFaceMesh();
-    if (!faceMeshInitialized) return;
-    
-    const cameraInitialized = await initializeCamera();
-    if (!cameraInitialized) return;
-    
-    settingsModal.style.display = 'none';
-    container.style.display = 'block';
-    
-    if (backgroundPromptInput.value.trim()) {
-      loadBackgroundImage(backgroundPromptInput.value.trim());
-    }
-    
-    isMultiplayer = multiplayerModeCheckbox.checked;
-    
-    if (isMultiplayer) {
-      room = new WebsimSocket();
-      setupMultiplayer();
-    }
-    
-    if (gameModeCheckbox.checked) {
-      const gameCanvas = document.getElementById('gameCanvas');
-      game = new Game(gameCanvas, {
-        mouthOpen: false,
-        mouthCenter: { x: 0, y: 0 }
-      }, isMultiplayer, room);
-      game.start();
-    }
-    
-    await camera.start();
-  } catch (error) {
-    console.error('Startup error:', error);
-    showError('An error occurred while starting the application. Please refresh and try again.');
+  settingsModal.style.display = 'none';
+  container.style.display = 'block';
+  
+  if (backgroundPromptInput.value.trim()) {
+    loadBackgroundImage(backgroundPromptInput.value.trim());
   }
+  
+  isMultiplayer = multiplayerModeCheckbox.checked;
+  
+  if (isMultiplayer) {
+    room = new WebsimSocket();
+    setupMultiplayer();
+    // Sync initial settings
+    syncUserSettings();
+  }
+  
+  if (gameModeCheckbox.checked) {
+    const gameCanvas = document.getElementById('gameCanvas');
+    game = new Game(gameCanvas, {
+      mouthOpen: false,
+      mouthCenter: { x: 0, y: 0 }
+    }, isMultiplayer, room);
+    game.start();
+  }
+  
+  camera.start();
 });
+
+const remoteFaceMeshes = new Map();
+const remoteUserSettings = new Map();
 
 function setupMultiplayer() {
   const playerList = document.getElementById('playerList');
@@ -173,9 +130,16 @@ function setupMultiplayer() {
       `;
       playerList.appendChild(playerItem);
     }
+    
+    // Clean up disconnected players' face mesh data
+    for (const clientId of remoteFaceMeshes.keys()) {
+      if (!peers[clientId]) {
+        remoteFaceMeshes.delete(clientId);
+      }
+    }
   });
 
-  // Handle face mesh data sync
+  // Update existing onmessage handler
   room.onmessage = (event) => {
     const data = event.data;
     switch (data.type) {
@@ -184,35 +148,99 @@ function setupMultiplayer() {
           updateRemoteFaceMesh(data);
         }
         break;
+      case 'userSettings':
+        if (data.clientId !== room.party.client.id) {
+          remoteUserSettings.set(data.clientId, data.settings);
+        }
+        break;
       case 'scoreUpdate':
         if (game) {
           game.updateGlobalScore(data.score);
         }
-        break
+        break;
     }
   };
 }
 
 function updateRemoteFaceMesh(data) {
-  // Draw remote player's face mesh on the canvas
-  const remoteCanvas = document.createElement('canvas');
-  remoteCanvas.width = canvasElement.width;
-  remoteCanvas.height = canvasElement.height;
-  const remoteCtx = remoteCanvas.getContext('2d');
+  const { clientId, landmarks, username } = data;
   
-  // Draw face mesh using the received landmarks
-  drawFaceMeshOnContext(remoteCtx, data.landmarks);
-  
-  // Composite the remote face mesh onto the main canvas
+  // Get or create face mesh data for this client
+  let remoteMeshData = remoteFaceMeshes.get(clientId);
+  if (!remoteMeshData) {
+    remoteMeshData = {
+      landmarks: landmarks,
+      username: username,
+      previousLandmarks: null,
+    };
+    remoteFaceMeshes.set(clientId, remoteMeshData);
+  } else {
+    // Smooth the transition between old and new landmarks
+    remoteMeshData.landmarks = smoothLandmarks(landmarks, remoteMeshData.previousLandmarks || landmarks);
+    remoteMeshData.previousLandmarks = remoteMeshData.landmarks;
+  }
+}
+
+function drawRemoteFaceMeshes() {
   canvasCtx.globalAlpha = 0.5;
-  canvasCtx.drawImage(remoteCanvas, 0, 0);
+  
+  for (const [clientId, meshData] of remoteFaceMeshes) {
+    const { landmarks } = meshData;
+    const userSettings = remoteUserSettings.get(clientId) || {
+      lineColor: `hsl(${stringToHue(clientId)}, 100%, 50%)`,
+      glowColor: `hsl(${stringToHue(clientId)}, 100%, 50%)`,
+      lineWidth: settings.lineWidth,
+      glowIntensity: settings.glowIntensity
+    };
+    
+    // Draw the remote face mesh with user's custom settings
+    canvasCtx.lineWidth = userSettings.lineWidth;
+    canvasCtx.strokeStyle = userSettings.lineColor;
+    canvasCtx.shadowColor = userSettings.glowColor;
+    canvasCtx.shadowBlur = userSettings.glowIntensity;
+    
+    drawConnectors(landmarks, FACEMESH_FACE_OVAL, userSettings.lineColor, userSettings.lineWidth);
+    drawFacialFeature(landmarks, FACE_CONNECTIONS.leftEye, userSettings.lineColor, userSettings.lineWidth);
+    drawFacialFeature(landmarks, FACE_CONNECTIONS.rightEye, userSettings.lineColor, userSettings.lineWidth);
+    drawFacialFeature(landmarks, FACE_CONNECTIONS.leftEyebrow, userSettings.lineColor, userSettings.lineWidth);
+    drawFacialFeature(landmarks, FACE_CONNECTIONS.rightEyebrow, userSettings.lineColor, userSettings.lineWidth);
+    drawFacialFeature(landmarks, FACE_CONNECTIONS.nose, userSettings.lineColor, userSettings.lineWidth);
+    drawFacialFeature(landmarks, FACE_CONNECTIONS.lipsOuter, userSettings.lineColor, userSettings.lineWidth);
+    drawFacialFeature(landmarks, FACE_CONNECTIONS.lipsInner, userSettings.lineColor, userSettings.lineWidth);
+  }
+  
   canvasCtx.globalAlpha = 1.0;
+}
+
+function syncUserSettings() {
+  if (isMultiplayer && room) {
+    room.send({
+      type: 'userSettings',
+      settings: {
+        lineColor: settings.lineColor,
+        glowColor: settings.glowColor,
+        lineWidth: settings.lineWidth,
+        glowIntensity: settings.glowIntensity
+      },
+      clientId: room.party.client.id,
+      username: room.party.client.username
+    });
+  }
+}
+
+// Helper function to generate consistent hue from string
+function stringToHue(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return hash % 360;
 }
 
 function drawFaceMeshOnContext(ctx, landmarks) {
   ctx.lineWidth = settings.lineWidth;
   ctx.strokeStyle = settings.lineColor;
-  ctx.shadowColor = settings.lineColor;
+  ctx.shadowColor = settings.glowColor;
   ctx.shadowBlur = settings.glowIntensity;
   
   // Draw face outline
@@ -304,6 +332,12 @@ function onResults(results) {
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
+  // Draw remote face meshes first
+  if (isMultiplayer) {
+    drawRemoteFaceMeshes();
+  }
+
+  // Draw local face mesh
   if (results.multiFaceLandmarks) {
     for (const landmarks of results.multiFaceLandmarks) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
@@ -311,7 +345,6 @@ function onResults(results) {
 
       // Update game mouth position if game is active
       if (game) {
-        // Calculate mouth openness using upper and lower lip landmarks
         const upperLip = smoothedLandmarks[13];
         const lowerLip = smoothedLandmarks[14];
         const mouthDistance = Math.hypot(
@@ -319,28 +352,24 @@ function onResults(results) {
           (upperLip.y - lowerLip.y) * canvasElement.height
         );
         
-        // Calculate mouth center
         const mouthCenter = {
           x: (upperLip.x + lowerLip.x) / 2 * canvasElement.width,
           y: (upperLip.y + lowerLip.y) / 2 * canvasElement.height
         };
         
-        // Update game data
         game.faceMeshData = {
-          mouthOpen: mouthDistance > 30, // Adjust threshold as needed
+          mouthOpen: mouthDistance > 30,
           mouthCenter: mouthCenter
         };
       }
 
+      // Draw local face mesh
       canvasCtx.lineWidth = settings.lineWidth;
       canvasCtx.strokeStyle = settings.lineColor;
-      canvasCtx.shadowColor = settings.lineColor;
+      canvasCtx.shadowColor = settings.glowColor;
       canvasCtx.shadowBlur = settings.glowIntensity;
       
-      // Draw face outline
       drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth);
-
-      // Draw facial features
       drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth);
       drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth);
       drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth);
@@ -357,6 +386,9 @@ function onResults(results) {
           clientId: room.party.client.id,
           username: room.party.client.username
         });
+        
+        // Sync settings when they change
+        syncUserSettings();
       }
     }
   }
@@ -381,8 +413,8 @@ function drawConnectors(landmarks, connections, color, width) {
 function drawFacialFeature(landmarks, connections, color, width) {
   canvasCtx.lineWidth = width;
   canvasCtx.strokeStyle = color;
-  canvasCtx.shadowColor = color;
-  canvasCtx.shadowBlur = 5;
+  canvasCtx.shadowColor = settings.glowColor;
+  canvasCtx.shadowBlur = settings.glowIntensity;
   
   connections.forEach(([i, j]) => {
     const start = landmarks[i];
@@ -394,3 +426,27 @@ function drawFacialFeature(landmarks, connections, color, width) {
     canvasCtx.stroke();
   });
 }
+
+const faceMesh = new FaceMesh({
+  locateFile: (file) => {
+    return `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`;
+  }
+});
+
+faceMesh.setOptions({
+  maxNumFaces: 1,
+  refineLandmarks: true,
+  minDetectionConfidence: 0.5,
+  minTrackingConfidence: 0.5
+});
+
+faceMesh.onResults(onResults);
+
+const camera = new Camera(videoElement, {
+  onFrame: async () => {
+    await faceMesh.send({image: videoElement});
+  },
+  width: 1280,
+  height: 720,
+  facingMode: 'user'
+});
