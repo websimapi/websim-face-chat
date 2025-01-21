@@ -87,8 +87,6 @@ startButton.addEventListener('click', async () => {
   camera.start();
 });
 
-const remoteUserSettings = {};
-
 function setupMultiplayer() {
   const playerList = document.getElementById('playerList');
   
@@ -135,77 +133,51 @@ function setupMultiplayer() {
           game.updateGlobalScore(data.score);
         }
         break;
-      case 'settingsUpdate':
-        if (data.clientId !== room.party.client.id) {
-          // Store remote user settings in a map keyed by clientId
-          remoteUserSettings[data.clientId] = {
-            lineColor: data.settings.lineColor,
-            lineWidth: data.settings.lineWidth,
-            glowIntensity: data.settings.glowIntensity
-          };
-        }
+      case 'userSettings':
+        updateOtherUserSettings(data);
         break;
     }
   };
 
   // Send initial settings when joining
   room.send({
-    type: 'settingsUpdate',
+    type: 'userSettings',
     clientId: room.party.client.id,
     settings: {
       lineColor: settings.lineColor,
-      lineWidth: settings.lineWidth,
       glowIntensity: settings.glowIntensity
     }
   });
 
-  // Add event listeners for settings changes to relay to other users
-  lineColorInput.addEventListener('input', (e) => {
-    settings.lineColor = e.target.value;
-    if (isMultiplayer && room) {
-      room.send({
-        type: 'settingsUpdate',
-        clientId: room.party.client.id,
-        settings: {
-          lineColor: settings.lineColor,
-          lineWidth: settings.lineWidth,
-          glowIntensity: settings.glowIntensity
-        }
-      });
-    }
+  // Send settings updates when they change
+  lineColorInput.addEventListener('change', () => {
+    room.send({
+      type: 'userSettings',
+      clientId: room.party.client.id,
+      settings: {
+        lineColor: settings.lineColor,
+        glowIntensity: settings.glowIntensity
+      }
+    });
   });
 
-  lineWidthInput.addEventListener('input', (e) => {
-    settings.lineWidth = e.target.value;
-    lineWidthValue.textContent = e.target.value;
-    if (isMultiplayer && room) {
-      room.send({
-        type: 'settingsUpdate',
-        clientId: room.party.client.id,
-        settings: {
-          lineColor: settings.lineColor,
-          lineWidth: settings.lineWidth,
-          glowIntensity: settings.glowIntensity
-        }
-      });
-    }
+  glowIntensityInput.addEventListener('change', () => {
+    room.send({
+      type: 'userSettings',
+      clientId: room.party.client.id,
+      settings: {
+        lineColor: settings.lineColor,
+        glowIntensity: settings.glowIntensity
+      }
+    });
   });
+}
 
-  glowIntensityInput.addEventListener('input', (e) => {
-    settings.glowIntensity = e.target.value;
-    glowIntensityValue.textContent = e.target.value;
-    if (isMultiplayer && room) {
-      room.send({
-        type: 'settingsUpdate',
-        clientId: room.party.client.id,
-        settings: {
-          lineColor: settings.lineColor,
-          lineWidth: settings.lineWidth,
-          glowIntensity: settings.glowIntensity
-        }
-      });
-    }
-  });
+// Store other users' settings
+const userSettings = new Map();
+
+function updateOtherUserSettings(data) {
+  userSettings.set(data.clientId, data.settings);
 }
 
 function updateRemoteFaceMesh(data) {
@@ -215,30 +187,106 @@ function updateRemoteFaceMesh(data) {
   const remoteCtx = remoteCanvas.getContext('2d');
   remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
   
-  // Get the remote user's settings or use defaults
-  const userSettings = remoteUserSettings[data.clientId] || {
-    lineColor: '#00ff00',
-    lineWidth: 2,
-    glowIntensity: 10
-  };
+  // Use received settings if available, otherwise generate from client ID
+  let userColor, userGlow;
+  if (data.settings) {
+    userSettings.set(data.clientId, data.settings);
+  }
   
-  // Draw face mesh using the received landmarks and user's settings
-  remoteCtx.lineWidth = userSettings.lineWidth;
-  remoteCtx.strokeStyle = userSettings.lineColor;
-  remoteCtx.shadowColor = userSettings.lineColor;
-  remoteCtx.shadowBlur = userSettings.glowIntensity;
+  const savedSettings = userSettings.get(data.clientId);
+  if (savedSettings) {
+    userColor = savedSettings.lineColor;
+    userGlow = savedSettings.glowIntensity;
+  } else {
+    userColor = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`;
+    userGlow = settings.glowIntensity;
+  }
+  
+  // Draw face mesh using the received landmarks and user settings
+  remoteCtx.lineWidth = settings.lineWidth;
+  remoteCtx.strokeStyle = userColor;
+  remoteCtx.shadowColor = userColor;
+  remoteCtx.shadowBlur = userGlow;
   
   // Draw face outline
-  drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
 
   // Draw facial features with user's settings
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEyebrow, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userSettings.lineColor, userSettings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEyebrow, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userColor, settings.lineWidth, remoteCtx);
+}
+
+function onResults(results) {
+  canvasCtx.save();
+  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+  if (results.multiFaceLandmarks) {
+    for (const landmarks of results.multiFaceLandmarks) {
+      const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
+      previousLandmarks = smoothedLandmarks;
+
+      // Update game mouth position if game is active
+      if (game) {
+        // Calculate mouth openness using upper and lower lip landmarks
+        const upperLip = smoothedLandmarks[13];
+        const lowerLip = smoothedLandmarks[14];
+        const mouthDistance = Math.hypot(
+          (upperLip.x - lowerLip.x) * canvasElement.width,
+          (upperLip.y - lowerLip.y) * canvasElement.height
+        );
+        
+        // Calculate mouth center
+        const mouthCenter = {
+          x: (upperLip.x + lowerLip.x) / 2 * canvasElement.width,
+          y: (upperLip.y + lowerLip.y) / 2 * canvasElement.height
+        };
+        
+        // Update game data
+        game.faceMeshData = {
+          mouthOpen: mouthDistance > 30,
+          mouthCenter: mouthCenter
+        };
+      }
+
+      canvasCtx.lineWidth = settings.lineWidth;
+      canvasCtx.strokeStyle = settings.lineColor;
+      canvasCtx.shadowColor = settings.lineColor;
+      canvasCtx.shadowBlur = settings.glowIntensity;
+      
+      // Draw face outline and features with current user's settings
+      // Draw face outline
+      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth, canvasCtx);
+
+      // Draw facial features
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth, canvasCtx);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth, canvasCtx);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth, canvasCtx);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth, canvasCtx);
+      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth, canvasCtx);
+
+      // Sync face mesh data in multiplayer mode
+      if (isMultiplayer && room) {
+        room.send({
+          type: 'faceMeshUpdate',
+          landmarks: smoothedLandmarks,
+          clientId: room.party.client.id,
+          username: room.party.client.username,
+          settings: {
+            lineColor: settings.lineColor,
+            glowIntensity: settings.glowIntensity
+          }
+        });
+      }
+    }
+  }
+  canvasCtx.restore();
 }
 
 // Facial feature connections
@@ -311,69 +359,6 @@ function smoothLandmarks(currentLandmarks, previousLandmarks) {
     y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
     z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * smoothingFactor
   }));
-}
-
-function onResults(results) {
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-  if (results.multiFaceLandmarks) {
-    for (const landmarks of results.multiFaceLandmarks) {
-      const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
-      previousLandmarks = smoothedLandmarks;
-
-      // Update game mouth position if game is active
-      if (game) {
-        // Calculate mouth openness using upper and lower lip landmarks
-        const upperLip = smoothedLandmarks[13];
-        const lowerLip = smoothedLandmarks[14];
-        const mouthDistance = Math.hypot(
-          (upperLip.x - lowerLip.x) * canvasElement.width,
-          (upperLip.y - lowerLip.y) * canvasElement.height
-        );
-        
-        // Calculate mouth center
-        const mouthCenter = {
-          x: (upperLip.x + lowerLip.x) / 2 * canvasElement.width,
-          y: (upperLip.y + lowerLip.y) / 2 * canvasElement.height
-        };
-        
-        // Update game data
-        game.faceMeshData = {
-          mouthOpen: mouthDistance > 30, // Adjust threshold as needed
-          mouthCenter: mouthCenter
-        };
-      }
-
-      canvasCtx.lineWidth = settings.lineWidth;
-      canvasCtx.strokeStyle = settings.lineColor;
-      canvasCtx.shadowColor = settings.lineColor;
-      canvasCtx.shadowBlur = settings.glowIntensity;
-      
-      // Draw face outline
-      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth, canvasCtx);
-
-      // Draw facial features
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth, canvasCtx);
-
-      // Sync face mesh data in multiplayer mode
-      if (isMultiplayer && room) {
-        room.send({
-          type: 'faceMeshUpdate',
-          landmarks: smoothedLandmarks,
-          clientId: room.party.client.id,
-          username: room.party.client.username
-        });
-      }
-    }
-  }
-  canvasCtx.restore();
 }
 
 function drawConnectors(landmarks, connections, color, width, ctx = canvasCtx) {
