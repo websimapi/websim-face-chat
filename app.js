@@ -222,7 +222,17 @@ function updateRemoteDrawing(data) {
   const remoteCtx = remoteCanvas.getContext('2d');
   const img = new Image();
   img.onload = () => {
-    remoteCtx.drawImage(img, 0, 0, remoteCanvas.width, remoteCanvas.height);
+    remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+    remoteCtx.save();
+    
+    // Transform drawing to match received face bounds
+    if (data.faceBounds) {
+      remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
+      remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
+    }
+    
+    remoteCtx.drawImage(img, 0, 0, 1, 1);
+    remoteCtx.restore();
   };
   img.src = data.drawingData;
 }
@@ -233,6 +243,85 @@ let drawingEnabled = false;
 let lastX = 0;
 let lastY = 0;
 let userDrawing = new Image(); // Store drawing as image
+let drawingBounds = { left: 0, top: 0, width: 0, height: 0 }; // Track face bounds for drawing
+
+// Helper function to get face bounds from landmarks
+function getFaceBounds(landmarks) {
+  let minX = Infinity, minY = Infinity;
+  let maxX = -Infinity, maxY = -Infinity;
+
+  landmarks.forEach(point => {
+    const x = point.x * canvasElement.width;
+    const y = point.y * canvasElement.height;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  });
+
+  // Add padding around face
+  const padding = 50;
+  return {
+    left: minX - padding,
+    top: minY - padding,
+    width: (maxX - minX) + (padding * 2),
+    height: (maxY - minY) + (padding * 2)
+  };
+}
+
+// Modified draw function to use relative coordinates
+function draw(e) {
+  if (!isDrawing || !drawingEnabled) return;
+  
+  // Convert mouse coordinates to relative position within face bounds
+  const relativeX = (e.offsetX - drawingBounds.left) / drawingBounds.width;
+  const relativeY = (e.offsetY - drawingBounds.top) / drawingBounds.height;
+  
+  const lastRelativeX = (lastX - drawingBounds.left) / drawingBounds.width;
+  const lastRelativeY = (lastY - drawingBounds.top) / drawingBounds.height;
+  
+  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  drawingCtx.save();
+  
+  // Transform drawing context to match face bounds
+  drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+  drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+  
+  // Draw previous content
+  if (userDrawing.src) {
+    drawingCtx.drawImage(userDrawing, 0, 0, 1, 1);
+  }
+  
+  // Draw new line
+  drawingCtx.beginPath();
+  drawingCtx.moveTo(lastRelativeX, lastRelativeY);
+  drawingCtx.lineTo(relativeX, relativeY);
+  drawingCtx.strokeStyle = drawingSettings.color;
+  drawingCtx.lineWidth = drawingSettings.width / drawingBounds.width;
+  drawingCtx.lineCap = 'round';
+  drawingCtx.stroke();
+  
+  drawingCtx.restore();
+  
+  // Update drawing image and broadcast
+  userDrawing.src = drawingCanvas.toDataURL();
+  if (room) {
+    room.send({
+      type: 'drawingUpdate',
+      clientId: room.party.client.id,
+      drawingData: userDrawing.src,
+      faceBounds: drawingBounds
+    });
+  }
+  
+  [lastX, lastY] = [e.offsetX, e.offsetY];
+}
+
+function startDrawing(e) {
+  if (!drawingEnabled) return;
+  isDrawing = true;
+  [lastX, lastY] = [e.offsetX, e.offsetY];
+}
 
 // Drawing settings
 const drawingSettings = {
@@ -266,7 +355,8 @@ clearDrawingBtn.addEventListener('click', () => {
     room.send({
       type: 'drawingUpdate',
       clientId: room.party.client.id,
-      drawingData: userDrawing.src
+      drawingData: userDrawing.src,
+      faceBounds: drawingBounds
     });
   }
 });
@@ -292,36 +382,6 @@ function handleTouch(e) {
   drawingCanvas.dispatchEvent(mouseEvent);
 }
 
-function startDrawing(e) {
-  if (!drawingEnabled) return;
-  isDrawing = true;
-  [lastX, lastY] = [e.offsetX, e.offsetY];
-}
-
-function draw(e) {
-  if (!isDrawing || !drawingEnabled) return;
-  
-  drawingCtx.beginPath();
-  drawingCtx.moveTo(lastX, lastY);
-  drawingCtx.lineTo(e.offsetX, e.offsetY);
-  drawingCtx.strokeStyle = drawingSettings.color;
-  drawingCtx.lineWidth = drawingSettings.width;
-  drawingCtx.lineCap = 'round';
-  drawingCtx.stroke();
-  
-  [lastX, lastY] = [e.offsetX, e.offsetY];
-  
-  // Update drawing image and broadcast
-  userDrawing.src = drawingCanvas.toDataURL();
-  if (room) {
-    room.send({
-      type: 'drawingUpdate',
-      clientId: room.party.client.id,
-      drawingData: userDrawing.src
-    });
-  }
-}
-
 function stopDrawing() {
   isDrawing = false;
 }
@@ -334,6 +394,19 @@ function onResults(results) {
     for (const landmarks of results.multiFaceLandmarks) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
+
+      // Update drawing bounds based on face position
+      drawingBounds = getFaceBounds(smoothedLandmarks);
+      
+      // Update drawing position
+      if (userDrawing.src) {
+        drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        drawingCtx.save();
+        drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+        drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+        drawingCtx.drawImage(userDrawing, 0, 0, 1, 1);
+        drawingCtx.restore();
+      }
 
       canvasCtx.lineWidth = settings.lineWidth;
       canvasCtx.strokeStyle = settings.lineColor;
@@ -362,7 +435,8 @@ function onResults(results) {
           settings: {
             lineColor: settings.lineColor,
             glowIntensity: settings.glowIntensity
-          }
+          },
+          faceBounds: drawingBounds
         });
       }
     }
@@ -428,7 +502,11 @@ function onResize() {
   // Redraw user drawing after resize
   if (userDrawing.src) {
     drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    drawingCtx.drawImage(userDrawing, 0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawingCtx.save();
+    drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+    drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+    drawingCtx.drawImage(userDrawing, 0, 0, 1, 1);
+    drawingCtx.restore();
   }
 }
 
