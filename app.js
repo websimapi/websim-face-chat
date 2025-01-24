@@ -615,13 +615,15 @@ const synth = window.speechSynthesis;
 // Configure recognition
 recognition.lang = 'en-US';
 
+let recognitionActive = false;
+
 async function setupVoiceChat() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     // We only need the stream to enable the microphone for speech recognition
     
-    // Initialize speech recognition
-    recognition.start();
+    // Don't auto-start recognition anymore, wait for button press
+    recognitionActive = false;
   } catch (error) {
     console.error('Error accessing microphone:', error);
     alert('Unable to access microphone. Please check permissions.');
@@ -633,7 +635,10 @@ voiceButton.addEventListener('pointerdown', () => {
   if (!isRecording) {
     isRecording = true;
     voiceButton.classList.add('recording');
-    recognition.start();
+    if (!recognitionActive) {
+      recognition.start();
+      recognitionActive = true;
+    }
   }
 });
 
@@ -641,7 +646,10 @@ voiceButton.addEventListener('pointerup', () => {
   if (isRecording) {
     isRecording = false;
     voiceButton.classList.remove('recording');
-    recognition.stop();
+    if (recognitionActive) {
+      recognition.stop();
+      recognitionActive = false;
+    }
   }
 });
 
@@ -649,6 +657,16 @@ voiceButton.addEventListener('pointerup', () => {
 voiceButton.addEventListener('touchmove', (e) => {
   e.preventDefault();
 });
+
+// Add error handling for recognition
+recognition.onerror = (event) => {
+  console.error('Speech recognition error:', event.error);
+  recognitionActive = false;
+};
+
+recognition.onend = () => {
+  recognitionActive = false;
+};
 
 // Speech recognition event handlers
 recognition.onresult = (event) => {
