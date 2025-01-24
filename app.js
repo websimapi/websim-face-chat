@@ -11,6 +11,18 @@ const canvasElement = document.getElementById('output');
 const canvasCtx = canvasElement.getContext('2d');
 const settingsModal = document.getElementById('settings-modal');
 const container = document.querySelector('.container');
+const drawingModeToggle = document.getElementById('drawingMode');
+const drawingControls = document.querySelector('.drawing-controls');
+const drawingColorInput = document.getElementById('drawingColor');
+const drawingWidthInput = document.getElementById('drawingWidth');
+const drawingWidthValue = document.getElementById('drawingWidthValue');
+const clearDrawingBtn = document.getElementById('clearDrawing');
+
+// Create a new canvas for drawing
+const drawingCanvas = document.createElement('canvas');
+drawingCanvas.id = 'drawingCanvas';
+container.appendChild(drawingCanvas);
+const drawingCtx = drawingCanvas.getContext('2d');
 
 // Settings inputs
 const lineColorInput = document.getElementById('lineColor');
@@ -113,6 +125,11 @@ function setupMultiplayer() {
       case 'userSettings':
         updateOtherUserSettings(data);
         break;
+      case 'drawingUpdate':
+        if (data.clientId !== room.party.client.id) {
+          updateRemoteDrawing(data);
+        }
+        break;
     }
   };
 
@@ -196,6 +213,117 @@ function updateRemoteFaceMesh(data) {
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userColor, settings.lineWidth, remoteCtx);
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userColor, settings.lineWidth, remoteCtx);
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userColor, settings.lineWidth, remoteCtx);
+}
+
+function updateRemoteDrawing(data) {
+  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
+  if (!remoteCanvas) return;
+  
+  const remoteCtx = remoteCanvas.getContext('2d');
+  const img = new Image();
+  img.onload = () => {
+    remoteCtx.drawImage(img, 0, 0, remoteCanvas.width, remoteCanvas.height);
+  };
+  img.src = data.drawingData;
+}
+
+// Drawing state
+let isDrawing = false;
+let drawingEnabled = false;
+let lastX = 0;
+let lastY = 0;
+let userDrawing = new Image(); // Store drawing as image
+
+// Drawing settings
+const drawingSettings = {
+  color: '#ff0000',
+  width: 5
+};
+
+// Event listeners for drawing controls
+drawingModeToggle.addEventListener('change', (e) => {
+  drawingEnabled = e.target.checked;
+  drawingControls.style.display = drawingEnabled ? 'block' : 'none';
+  drawingCanvas.classList.toggle('drawing-mode', drawingEnabled);
+});
+
+drawingColorInput.addEventListener('input', (e) => {
+  drawingSettings.color = e.target.value;
+});
+
+drawingWidthInput.addEventListener('input', (e) => {
+  drawingSettings.width = e.target.value;
+  drawingWidthValue.textContent = e.target.value;
+});
+
+clearDrawingBtn.addEventListener('click', () => {
+  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  // Create new image data from cleared canvas
+  userDrawing = new Image();
+  userDrawing.src = drawingCanvas.toDataURL();
+  // Broadcast cleared drawing in multiplayer
+  if (room) {
+    room.send({
+      type: 'drawingUpdate',
+      clientId: room.party.client.id,
+      drawingData: userDrawing.src
+    });
+  }
+});
+
+// Drawing event handlers
+drawingCanvas.addEventListener('mousedown', startDrawing);
+drawingCanvas.addEventListener('mousemove', draw);
+drawingCanvas.addEventListener('mouseup', stopDrawing);
+drawingCanvas.addEventListener('mouseout', stopDrawing);
+
+// Touch support
+drawingCanvas.addEventListener('touchstart', handleTouch);
+drawingCanvas.addEventListener('touchmove', handleTouch);
+drawingCanvas.addEventListener('touchend', stopDrawing);
+
+function handleTouch(e) {
+  e.preventDefault();
+  const touch = e.touches[0];
+  const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
+    clientX: touch.clientX,
+    clientY: touch.clientY
+  });
+  drawingCanvas.dispatchEvent(mouseEvent);
+}
+
+function startDrawing(e) {
+  if (!drawingEnabled) return;
+  isDrawing = true;
+  [lastX, lastY] = [e.offsetX, e.offsetY];
+}
+
+function draw(e) {
+  if (!isDrawing || !drawingEnabled) return;
+  
+  drawingCtx.beginPath();
+  drawingCtx.moveTo(lastX, lastY);
+  drawingCtx.lineTo(e.offsetX, e.offsetY);
+  drawingCtx.strokeStyle = drawingSettings.color;
+  drawingCtx.lineWidth = drawingSettings.width;
+  drawingCtx.lineCap = 'round';
+  drawingCtx.stroke();
+  
+  [lastX, lastY] = [e.offsetX, e.offsetY];
+  
+  // Update drawing image and broadcast
+  userDrawing.src = drawingCanvas.toDataURL();
+  if (room) {
+    room.send({
+      type: 'drawingUpdate',
+      clientId: room.party.client.id,
+      drawingData: userDrawing.src
+    });
+  }
+}
+
+function stopDrawing() {
+  isDrawing = false;
 }
 
 function onResults(results) {
@@ -295,7 +423,15 @@ const smoothingFactor = 0.5;
 function onResize() {
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
+  drawingCanvas.width = window.innerWidth;
+  drawingCanvas.height = window.innerHeight;
+  // Redraw user drawing after resize
+  if (userDrawing.src) {
+    drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawingCtx.drawImage(userDrawing, 0, 0, drawingCanvas.width, drawingCanvas.height);
+  }
 }
+
 window.addEventListener('resize', onResize);
 onResize();
 
