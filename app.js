@@ -228,7 +228,16 @@ function updateRemoteDrawing(data) {
     remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
     remoteCtx.save();
     
-    // Transform drawing to match received face bounds
+    // Center of face bounds for rotation
+    const centerX = data.faceBounds.left + data.faceBounds.width / 2;
+    const centerY = data.faceBounds.top + data.faceBounds.height / 2;
+    
+    // Apply transformations around center point
+    remoteCtx.translate(centerX, centerY);
+    remoteCtx.rotate(data.headRotation);
+    remoteCtx.translate(-centerX, -centerY);
+    
+    // Apply face bounds transformation
     remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
     remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
     
@@ -239,6 +248,18 @@ function updateRemoteDrawing(data) {
     };
     img.src = data.drawingData;
   }
+}
+
+// Helper function to calculate head rotation angle from landmarks
+function calculateHeadRotation(landmarks) {
+  // Use points around the face to determine rotation
+  const leftEye = landmarks[33];  // Left eye outer corner
+  const rightEye = landmarks[263]; // Right eye outer corner
+  const angle = Math.atan2(
+    rightEye.y - leftEye.y,
+    rightEye.x - leftEye.x
+  );
+  return angle;
 }
 
 // Drawing state
@@ -255,78 +276,6 @@ drawingBuffer.height = 1000;
 const bufferCtx = drawingBuffer.getContext('2d');
 bufferCtx.lineCap = 'round';
 bufferCtx.lineJoin = 'round';
-
-// Modified draw function to use relative coordinates
-function draw(e) {
-  if (!isDrawing || !drawingEnabled) return;
-  
-  e.preventDefault();
-  
-  // Convert mouse/touch coordinates to relative position within face bounds
-  const rect = drawingCanvas.getBoundingClientRect();
-  
-  // Adjust for mirroring by inverting the x coordinate
-  const x = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
-  const y = (e.clientY || e.touches[0].clientY) - rect.top;
-  
-  // Convert to relative coordinates (0-1 range)
-  const relativeX = (x - drawingBounds.left) / drawingBounds.width;
-  const relativeY = (y - drawingBounds.top) / drawingBounds.height;
-  
-  const lastRelativeX = (lastX - drawingBounds.left) / drawingBounds.width;
-  const lastRelativeY = (lastY - drawingBounds.top) / drawingBounds.height;
-  
-  // Draw in buffer (normalized 0-1 space)
-  bufferCtx.beginPath();
-  bufferCtx.moveTo(lastRelativeX * 1000, lastRelativeY * 1000);
-  bufferCtx.lineTo(relativeX * 1000, relativeY * 1000);
-  bufferCtx.strokeStyle = drawingSettings.color;
-  bufferCtx.lineWidth = drawingSettings.width * 2;
-  bufferCtx.stroke();
-  
-  // Draw on screen
-  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-  drawingCtx.save();
-  drawingCtx.translate(drawingBounds.left, drawingBounds.top);
-  drawingCtx.scale(drawingBounds.width, drawingBounds.height);
-  drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
-  drawingCtx.restore();
-  
-  // Broadcast drawing update
-  if (room) {
-    room.send({
-      type: 'drawingUpdate',
-      clientId: room.party.client.id,
-      drawingData: drawingBuffer.toDataURL(),
-      faceBounds: drawingBounds
-    });
-  }
-  
-  [lastX, lastY] = [x, y];
-}
-
-function startDrawing(e) {
-  if (!drawingEnabled) return;
-  isDrawing = true;
-  const rect = drawingCanvas.getBoundingClientRect();
-  // Adjust for mirroring
-  lastX = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
-  lastY = (e.clientY || e.touches[0].clientY) - rect.top;
-}
-
-function clearDrawing() {
-  bufferCtx.clearRect(0, 0, drawingBuffer.width, drawingBuffer.height);
-  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-  
-  if (room) {
-    room.send({
-      type: 'drawingUpdate',
-      clientId: room.party.client.id,
-      drawingData: drawingBuffer.toDataURL(),
-      faceBounds: drawingBounds
-    });
-  }
-}
 
 // Drawing settings
 const drawingSettings = {
@@ -370,8 +319,90 @@ drawingCanvas.addEventListener('touchmove', (e) => {
 drawingCanvas.addEventListener('touchend', stopDrawing);
 drawingCanvas.addEventListener('touchcancel', stopDrawing);
 
+function startDrawing(e) {
+  if (!drawingEnabled) return;
+  isDrawing = true;
+  const rect = drawingCanvas.getBoundingClientRect();
+  // Adjust for mirroring
+  lastX = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
+  lastY = (e.clientY || e.touches[0].clientY) - rect.top;
+}
+
+function clearDrawing() {
+  bufferCtx.clearRect(0, 0, drawingBuffer.width, drawingBuffer.height);
+  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  
+  if (room) {
+    room.send({
+      type: 'drawingUpdate',
+      clientId: room.party.client.id,
+      drawingData: drawingBuffer.toDataURL(),
+      faceBounds: drawingBounds
+    });
+  }
+}
+
 function stopDrawing() {
   isDrawing = false;
+}
+
+function draw(e) {
+  if (!isDrawing || !drawingEnabled) return;
+  
+  e.preventDefault();
+  
+  const rect = drawingCanvas.getBoundingClientRect();
+  const x = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
+  const y = (e.clientY || e.touches[0].clientY) - rect.top;
+  
+  // Get current head rotation
+  const headRotation = calculateHeadRotation(previousLandmarks);
+  
+  // Center of face bounds
+  const centerX = drawingBounds.left + drawingBounds.width / 2;
+  const centerY = drawingBounds.top + drawingBounds.height / 2;
+  
+  // Convert to relative coordinates accounting for rotation
+  // Translate point to origin
+  const dx = x - centerX;
+  const dy = y - centerY;
+  
+  // Rotate point
+  const rotatedX = dx * Math.cos(-headRotation) - dy * Math.sin(-headRotation);
+  const rotatedY = dx * Math.sin(-headRotation) + dy * Math.cos(-headRotation);
+  
+  // Translate back and convert to relative coordinates
+  const relativeX = (rotatedX + centerX - drawingBounds.left) / drawingBounds.width;
+  const relativeY = (rotatedY + centerY - drawingBounds.top) / drawingBounds.height;
+  
+  // Calculate previous point with same transformation
+  const prevDx = lastX - centerX;
+  const prevDy = lastY - centerY;
+  const prevRotatedX = prevDx * Math.cos(-headRotation) - prevDy * Math.sin(-headRotation);
+  const prevRotatedY = prevDx * Math.sin(-headRotation) + prevDy * Math.cos(-headRotation);
+  const lastRelativeX = (prevRotatedX + centerX - drawingBounds.left) / drawingBounds.width;
+  const lastRelativeY = (prevRotatedY + centerY - drawingBounds.top) / drawingBounds.height;
+  
+  // Draw in buffer
+  bufferCtx.beginPath();
+  bufferCtx.moveTo(lastRelativeX * 1000, lastRelativeY * 1000);
+  bufferCtx.lineTo(relativeX * 1000, relativeY * 1000);
+  bufferCtx.strokeStyle = drawingSettings.color;
+  bufferCtx.lineWidth = drawingSettings.width * 2;
+  bufferCtx.stroke();
+  
+  // Broadcast drawing update
+  if (room) {
+    room.send({
+      type: 'drawingUpdate',
+      clientId: room.party.client.id,
+      drawingData: drawingBuffer.toDataURL(),
+      faceBounds: drawingBounds,
+      headRotation: headRotation
+    });
+  }
+  
+  [lastX, lastY] = [x, y];
 }
 
 // Helper function to get face bounds from landmarks
@@ -407,12 +438,26 @@ function onResults(results) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
 
+      // Calculate head rotation
+      const headRotation = calculateHeadRotation(smoothedLandmarks);
+
       // Update drawing bounds based on face position
       drawingBounds = getFaceBounds(smoothedLandmarks);
       
-      // Update drawing position based on face bounds
+      // Update drawing position based on face bounds and rotation
       drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
       drawingCtx.save();
+      
+      // Center of face bounds for rotation
+      const centerX = drawingBounds.left + drawingBounds.width / 2;
+      const centerY = drawingBounds.top + drawingBounds.height / 2;
+      
+      // Apply transformations around center point
+      drawingCtx.translate(centerX, centerY);
+      drawingCtx.rotate(headRotation);
+      drawingCtx.translate(-centerX, -centerY);
+      
+      // Apply face bounds transformation
       drawingCtx.translate(drawingBounds.left, drawingBounds.top);
       drawingCtx.scale(drawingBounds.width, drawingBounds.height);
       drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
@@ -446,7 +491,8 @@ function onResults(results) {
             lineColor: settings.lineColor,
             glowIntensity: settings.glowIntensity
           },
-          faceBounds: drawingBounds
+          faceBounds: drawingBounds,
+          headRotation: headRotation
         });
       }
     }
