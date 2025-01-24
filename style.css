@@ -221,6 +221,84 @@ h2 {
   cursor: crosshair;
 }
 
+#voiceControls {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  z-index: 1000;
+}
+
+#voiceButton {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  background: #00ff00;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: #000;
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.5);
+  transition: all 0.3s ease;
+  touch-action: none;
+}
+
+#voiceButton:active,
+#voiceButton.recording {
+  background: #ff0000;
+  box-shadow: 0 0 30px rgba(255, 0, 0, 0.7);
+  transform: scale(0.95);
+}
+
+.button-text {
+  font-size: 14px;
+  text-align: center;
+  user-select: none;
+}
+
+.hear-self {
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 14px;
+}
+
+#messageLog {
+  position: fixed;
+  left: 20px;
+  bottom: 100px;
+  width: 300px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 10px;
+  padding: 10px;
+  color: #fff;
+  font-size: 14px;
+  z-index: 1000;
+}
+
+.message {
+  margin-bottom: 8px;
+  padding: 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.message .username {
+  color: #00ff00;
+  font-weight: bold;
+  margin-right: 5px;
+}
+
 @media (max-width: 768px) {
   #colorTools {
     top: auto;
@@ -233,5 +311,17 @@ h2 {
 
   .drawing-controls {
     justify-content: center;
+  }
+  
+  #voiceControls {
+    bottom: 100px;
+  }
+  
+  #messageLog {
+    left: 50%;
+    transform: translateX(-50%);
+    width: 90%;
+    max-width: 300px;
+    bottom: 240px;
   }
 }

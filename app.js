@@ -130,6 +130,24 @@ function setupMultiplayer() {
           updateRemoteDrawing(data);
         }
         break;
+      case 'voiceMessage':
+        if (data.clientId !== room.party.client.id || document.getElementById('hearSelf').checked) {
+          const audio = new Audio(data.audioUrl);
+          audio.play();
+        }
+        break;
+      case 'transcription':
+        if (data.clientId !== room.party.client.id) {
+          addMessageToLog(data.username, data.text);
+          
+          // Convert text to speech for remote messages
+          if ('speechSynthesis' in window) {
+            const utterance = new SpeechSynthesisUtterance(data.text);
+            const synth = window.speechSynthesis;
+            synth.speak(utterance);
+          }
+        }
+        break;
     }
   };
 
@@ -165,6 +183,8 @@ function setupMultiplayer() {
       }
     });
   });
+
+  setupVoiceChat();
 }
 
 // Store other users' settings
@@ -583,3 +603,122 @@ const camera = new Camera(videoElement, {
   height: 720,
   facingMode: 'user'
 });
+
+let mediaRecorder;
+let audioChunks = [];
+let isRecording = false;
+const voiceButton = document.getElementById('voiceButton');
+const hearSelfCheckbox = document.getElementById('hearSelf');
+const messageLog = document.getElementById('messageLog');
+
+// Initialize speech recognition
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = new SpeechRecognition();
+recognition.continuous = true;
+recognition.interimResults = true;
+
+// Initialize speech synthesis
+const synth = window.speechSynthesis;
+
+// Configure recognition
+recognition.lang = 'en-US';
+
+async function setupVoiceChat() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    mediaRecorder = new MediaRecorder(stream);
+    
+    mediaRecorder.ondataavailable = (event) => {
+      audioChunks.push(event.data);
+    };
+    
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+      const audioUrl = URL.createObjectURL(audioBlob);
+      
+      // Convert speech to text
+      recognition.start();
+      
+      // Play audio locally if enabled
+      if (hearSelfCheckbox.checked) {
+        const audio = new Audio(audioUrl);
+        audio.play();
+      }
+      
+      // Upload audio file
+      try {
+        const url = await websim.upload(audioBlob);
+        
+        // Send audio URL and metadata to peers
+        room.send({
+          type: 'voiceMessage',
+          audioUrl: url,
+          clientId: room.party.client.id,
+          username: room.party.client.username
+        });
+      } catch (error) {
+        console.error('Error uploading audio:', error);
+      }
+      
+      audioChunks = [];
+    };
+  } catch (error) {
+    console.error('Error accessing microphone:', error);
+    alert('Unable to access microphone. Please check permissions.');
+  }
+}
+
+// Voice button event listeners
+voiceButton.addEventListener('pointerdown', () => {
+  if (!isRecording) {
+    isRecording = true;
+    voiceButton.classList.add('recording');
+    audioChunks = [];
+    mediaRecorder.start();
+  }
+});
+
+voiceButton.addEventListener('pointerup', () => {
+  if (isRecording) {
+    isRecording = false;
+    voiceButton.classList.remove('recording');
+    mediaRecorder.stop();
+    recognition.stop();
+  }
+});
+
+// Prevent scrolling when touching the voice button on mobile
+voiceButton.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+});
+
+// Speech recognition event handlers
+recognition.onresult = (event) => {
+  const last = event.results.length - 1;
+  const text = event.results[last][0].transcript;
+  
+  if (event.results[last].isFinal) {
+    // Send the transcribed text to peers
+    room.send({
+      type: 'transcription',
+      text: text,
+      clientId: room.party.client.id,
+      username: room.party.client.username
+    });
+    
+    addMessageToLog(room.party.client.username, text);
+  }
+};
+
+function addMessageToLog(username, text) {
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message';
+  messageDiv.innerHTML = `<span class="username">${username}:</span> ${text}`;
+  messageLog.appendChild(messageDiv);
+  messageLog.scrollTop = messageLog.scrollHeight;
+  
+  // Keep only last 50 messages
+  while (messageLog.children.length > 50) {
+    messageLog.removeChild(messageLog.firstChild);
+  }
+}
