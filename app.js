@@ -697,29 +697,6 @@ recognition.onend = () => {
   recognitionActive = false;
 };
 
-// Speech recognition event handlers
-// recognition.onresult = (event) => {
-//   const last = event.results.length - 1;
-//   const text = event.results[last][0].transcript;
-  
-//   if (event.results[last].isFinal) {
-//     // Send the transcribed text to peers
-//     room.send({
-//       type: 'transcription',
-//       text: text,
-//       clientId: room.party.client.id,
-//       username: room.party.client.username
-//     });
-    
-//     addMessageToLog(room.party.client.username, text);
-    
-//     // Play TTS for self if enabled
-//     if (hearSelfCheckbox.checked) {
-//       playTTS(text);
-//     }
-//   }
-// };
-
 let speechQueue = [];
 let isSpeaking = false;
 
