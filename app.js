@@ -133,13 +133,7 @@ function setupMultiplayer() {
       case 'transcription':
         if (data.clientId !== room.party.client.id) {
           addMessageToLog(data.username, data.text);
-          
-          // Convert text to speech for remote messages
-          if ('speechSynthesis' in window) {
-            const utterance = new SpeechSynthesisUtterance(data.text);
-            const synth = window.speechSynthesis;
-            synth.speak(utterance);
-          }
+          playTTS(data.text);
         }
         break;
     }
@@ -603,14 +597,14 @@ const voiceButton = document.getElementById('voiceButton');
 const hearSelfCheckbox = document.getElementById('hearSelf');
 const messageLog = document.getElementById('messageLog');
 
-// Initialize speech recognition
+// Initialize speech synthesis
+const synth = window.speechSynthesis;
+
+// Initialize speech recognition! 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
 recognition.continuous = true;
 recognition.interimResults = true;
-
-// Initialize speech synthesis
-const synth = window.speechSynthesis;
 
 // Configure recognition
 recognition.lang = 'en-US';
@@ -660,7 +654,7 @@ voiceButton.addEventListener('touchmove', (e) => {
 
 // Add error handling for recognition
 recognition.onerror = (event) => {
-  console.error('Speech recognition error:', event.error);
+  console.error('Speech recognition error:', event);
   recognitionActive = false;
 };
 
@@ -684,11 +678,9 @@ recognition.onresult = (event) => {
     
     addMessageToLog(room.party.client.username, text);
     
-    // Only play TTS for self if enabled
-    if (hearSelfCheckbox.checked && 'speechSynthesis' in window) {
-      const utterance = new SpeechSynthesisUtterance(text);
-      const synth = window.speechSynthesis;
-      synth.speak(utterance);
+    // Play TTS for self if enabled
+    if (hearSelfCheckbox.checked) {
+      playTTS(text);
     }
   }
 };
@@ -704,4 +696,24 @@ function addMessageToLog(username, text) {
   while (messageLog.children.length > 50) {
     messageLog.removeChild(messageLog.firstChild);
   }
+}
+
+// Dedicated TTS function
+function playTTS(text) {
+  // Cancel any ongoing speech
+  synth.cancel();
+  
+  // Create and configure new utterance
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+  
+  // Add error handling
+  utterance.onerror = (event) => {
+    console.error('TTS Error:', event);
+  };
+  
+  // Speak the text
+  synth.speak(utterance);
 }
