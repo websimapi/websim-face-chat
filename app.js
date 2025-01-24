@@ -130,12 +130,6 @@ function setupMultiplayer() {
           updateRemoteDrawing(data);
         }
         break;
-      case 'voiceMessage':
-        if (data.clientId !== room.party.client.id || document.getElementById('hearSelf').checked) {
-          const audio = new Audio(data.audioUrl);
-          audio.play();
-        }
-        break;
       case 'transcription':
         if (data.clientId !== room.party.client.id) {
           addMessageToLog(data.username, data.text);
@@ -604,8 +598,6 @@ const camera = new Camera(videoElement, {
   facingMode: 'user'
 });
 
-let mediaRecorder;
-let audioChunks = [];
 let isRecording = false;
 const voiceButton = document.getElementById('voiceButton');
 const hearSelfCheckbox = document.getElementById('hearSelf');
@@ -626,42 +618,10 @@ recognition.lang = 'en-US';
 async function setupVoiceChat() {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    mediaRecorder = new MediaRecorder(stream);
+    // We only need the stream to enable the microphone for speech recognition
     
-    mediaRecorder.ondataavailable = (event) => {
-      audioChunks.push(event.data);
-    };
-    
-    mediaRecorder.onstop = async () => {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
-      const audioUrl = URL.createObjectURL(audioBlob);
-      
-      // Convert speech to text
-      recognition.start();
-      
-      // Play audio locally if enabled
-      if (hearSelfCheckbox.checked) {
-        const audio = new Audio(audioUrl);
-        audio.play();
-      }
-      
-      // Upload audio file
-      try {
-        const url = await websim.upload(audioBlob);
-        
-        // Send audio URL and metadata to peers
-        room.send({
-          type: 'voiceMessage',
-          audioUrl: url,
-          clientId: room.party.client.id,
-          username: room.party.client.username
-        });
-      } catch (error) {
-        console.error('Error uploading audio:', error);
-      }
-      
-      audioChunks = [];
-    };
+    // Initialize speech recognition
+    recognition.start();
   } catch (error) {
     console.error('Error accessing microphone:', error);
     alert('Unable to access microphone. Please check permissions.');
@@ -673,8 +633,7 @@ voiceButton.addEventListener('pointerdown', () => {
   if (!isRecording) {
     isRecording = true;
     voiceButton.classList.add('recording');
-    audioChunks = [];
-    mediaRecorder.start();
+    recognition.start();
   }
 });
 
@@ -682,7 +641,6 @@ voiceButton.addEventListener('pointerup', () => {
   if (isRecording) {
     isRecording = false;
     voiceButton.classList.remove('recording');
-    mediaRecorder.stop();
     recognition.stop();
   }
 });
@@ -707,6 +665,13 @@ recognition.onresult = (event) => {
     });
     
     addMessageToLog(room.party.client.username, text);
+    
+    // Only play TTS for self if enabled
+    if (hearSelfCheckbox.checked && 'speechSynthesis' in window) {
+      const utterance = new SpeechSynthesisUtterance(text);
+      const synth = window.speechSynthesis;
+      synth.speak(utterance);
+    }
   }
 };
 
