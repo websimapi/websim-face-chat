@@ -299,6 +299,21 @@ h2 {
   margin-right: 5px;
 }
 
+#voiceSelect {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #2a2a2a;
+  color: #fff;
+  margin-top: 0.5rem;
+}
+
+#voiceSelect option {
+  background: #2a2a2a;
+  color: #fff;
+}
+
 @media (max-width: 768px) {
   #colorTools {
     top: auto;

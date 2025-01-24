@@ -601,6 +601,40 @@ const messageLog = document.getElementById('messageLog');
 // Initialize speech synthesis
 const synth = window.speechSynthesis;
 
+let voices = [];
+const defaultVoice = {
+  name: 'Microsoft David - English (United States)',
+  fallback: 'Google US English'
+};
+
+function populateVoiceSelect() {
+  const voiceSelect = document.getElementById('voiceSelect');
+  voices = synth.getVoices();
+  
+  // Clear existing options
+  voiceSelect.innerHTML = '';
+  
+  // Add voices to select
+  voices.forEach(voice => {
+    const option = document.createElement('option');
+    option.value = voice.name;
+    option.textContent = `${voice.name} (${voice.lang})`;
+    voiceSelect.appendChild(option);
+  });
+  
+  // Try to set default voice
+  const preferredVoice = voices.find(v => v.name === defaultVoice.name) || 
+                        voices.find(v => v.name === defaultVoice.fallback) ||
+                        voices.find(v => v.lang === 'en-US') ||
+                        voices[0];
+                        
+  if (preferredVoice) {
+    voiceSelect.value = preferredVoice.name;
+  }
+}
+
+synth.addEventListener('voiceschanged', populateVoiceSelect);
+
 // Initialize speech recognition! 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = new SpeechRecognition();
@@ -623,6 +657,59 @@ async function setupVoiceChat() {
     console.error('Error accessing microphone:', error);
     alert('Unable to access microphone. Please check permissions.');
   }
+}
+
+let speechQueue = [];
+let isSpeaking = false;
+
+function playTTS(text) {
+  speechQueue.push(text);
+  
+  if (!isSpeaking) {
+    processQueue();
+  }
+}
+
+function processQueue() {
+  if (speechQueue.length === 0) {
+    isSpeaking = false;
+    return;
+  }
+  
+  isSpeaking = true;
+  
+  synth.cancel();
+  
+  const text = speechQueue.shift();
+  
+  const utterance = new SpeechSynthesisUtterance(text);
+  
+  // Get selected voice
+  const selectedVoiceName = document.getElementById('voiceSelect').value;
+  const selectedVoice = voices.find(v => v.name === selectedVoiceName) || 
+                       voices.find(v => v.name === defaultVoice.fallback) ||
+                       voices.find(v => v.lang === 'en-US') ||
+                       voices[0];
+  
+  if (selectedVoice) {
+    utterance.voice = selectedVoice;
+  }
+  
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+  
+  utterance.onerror = (event) => {
+    console.error('TTS Error:', event);
+    isSpeaking = false;
+    processQueue(); // Continue with next item in queue
+  };
+  
+  utterance.onend = () => {
+    processQueue();
+  };
+  
+  synth.speak(utterance);
 }
 
 // Update the speech recognition event handlers
@@ -696,55 +783,6 @@ recognition.onerror = (event) => {
 recognition.onend = () => {
   recognitionActive = false;
 };
-
-let speechQueue = [];
-let isSpeaking = false;
-
-function playTTS(text) {
-  // Add the new text to the queue
-  speechQueue.push(text);
-  
-  // If not currently speaking, start processing the queue
-  if (!isSpeaking) {
-    processQueue();
-  }
-}
-
-function processQueue() {
-  if (speechQueue.length === 0) {
-    isSpeaking = false;
-    return;
-  }
-  
-  isSpeaking = true;
-  
-  // Cancel any ongoing speech
-  synth.cancel();
-  
-  // Get the next text to speak
-  const text = speechQueue.shift();
-  
-  // Create and configure new utterance
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.0;
-  utterance.pitch = 1.0;
-  utterance.volume = 1.0;
-  
-  // Add error handling
-  utterance.onerror = (event) => {
-    console.error('TTS Error:', event);
-    isSpeaking = false;
-    processQueue(); // Continue with next item in queue
-  };
-  
-  // When speech ends, process next item in queue
-  utterance.onend = () => {
-    processQueue();
-  };
-  
-  // Speak the text
-  synth.speak(utterance);
-}
 
 function addMessageToLog(username, text) {
   const messageDiv = document.createElement('div');
