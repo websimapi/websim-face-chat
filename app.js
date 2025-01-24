@@ -667,6 +667,7 @@ recognition.onresult = (event) => {
   const last = event.results.length - 1;
   const text = event.results[last][0].transcript;
   
+  // Only process when we have a final result
   if (event.results[last].isFinal) {
     // Send the transcribed text to peers
     room.send({
