@@ -14,7 +14,7 @@
     <div class="modal-content">
       <h2>Face Tracking Settings</h2>
       <div class="settings-group">
-        <label for="lineColor">Line Color:</label>
+        <label for="lineColor">Face Outline Color:</label>
         <input type="color" id="lineColor" value="#00ff00">
       </div>
       <div class="settings-group">
@@ -31,20 +31,22 @@
         <label for="backgroundPrompt">Background Image Prompt:</label>
         <input type="text" id="backgroundPrompt" placeholder="Enter image description">
       </div>
-      <div class="settings-group">
-        <div class="drawing-controls">
-          <input type="color" id="drawingColor" value="#ff0000">
-          <input type="range" id="drawingWidth" min="1" max="20" value="5">
-          <span id="drawingWidthValue">5</span>
-          <button id="clearDrawing">Clear Drawing</button>
-        </div>
-      </div>
       <button id="startButton">Start Face Tracking</button>
     </div>
   </div>
   
   <div class="container" style="display: none">
     <div id="playerList"></div>
+    <div id="colorTools">
+      <div class="drawing-controls">
+        <label>Drawing Color:</label>
+        <input type="color" id="drawingColor" value="#ff0000">
+        <label>Width:</label>
+        <input type="range" id="drawingWidth" min="1" max="20" value="5">
+        <span id="drawingWidthValue">5</span>
+        <button id="clearDrawing">Clear Drawing</button>
+      </div>
+    </div>
     <canvas id="output"></canvas>
     <video id="input" style="display: none"></video>
   </div>

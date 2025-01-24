@@ -158,32 +158,50 @@ h2 {
 }
 
 .drawing-controls {
-  margin-top: 10px;
-  padding: 10px;
-  background: #2a2a2a;
-  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.drawing-controls label {
+  margin: 0;
+  white-space: nowrap;
 }
 
 .drawing-controls input[type="color"] {
   width: 50px;
+  height: 30px;
   padding: 0;
-  margin-right: 10px;
+  border: none;
+  background: none;
+  cursor: pointer;
 }
 
 .drawing-controls input[type="range"] {
-  width: calc(100% - 70px);
-  display: inline-block;
-  vertical-align: middle;
+  width: 100px;
+  margin: 0;
+}
+
+#colorTools {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.7);
+  padding: 15px;
+  border-radius: 10px;
+  z-index: 1000;
+  color: white;
 }
 
 #clearDrawing {
-  margin-top: 10px;
-  padding: 5px 10px;
   background: #ff4444;
-  border: none;
-  border-radius: 4px;
   color: white;
+  border: none;
+  padding: 5px 10px;
+  border-radius: 4px;
   cursor: pointer;
+  font-size: 14px;
 }
 
 #clearDrawing:hover {
@@ -201,4 +219,19 @@ h2 {
   z-index: 2;
   touch-action: none;
   cursor: crosshair;
+}
+
+@media (max-width: 768px) {
+  #colorTools {
+    top: auto;
+    bottom: 20px;
+    right: 50%;
+    transform: translateX(50%);
+    width: 90%;
+    max-width: 400px;
+  }
+
+  .drawing-controls {
+    justify-content: center;
+  }
 }
