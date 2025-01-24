@@ -169,6 +169,7 @@ function setupMultiplayer() {
 
 // Store other users' settings
 const userSettings = new Map();
+const userDrawings = new Map(); // Store drawings for each user
 
 function updateOtherUserSettings(data) {
   userSettings.set(data.clientId, data.settings);
@@ -219,22 +220,25 @@ function updateRemoteDrawing(data) {
   const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
   if (!remoteCanvas) return;
   
+  userDrawings.set(data.clientId, data.drawingData);
   const remoteCtx = remoteCanvas.getContext('2d');
-  const img = new Image();
-  img.onload = () => {
+  
+  // Only draw if we have face bounds
+  if (data.faceBounds) {
     remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
     remoteCtx.save();
     
     // Transform drawing to match received face bounds
-    if (data.faceBounds) {
-      remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
-      remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
-    }
+    remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
+    remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
     
-    remoteCtx.drawImage(img, 0, 0, 1, 1);
-    remoteCtx.restore();
-  };
-  img.src = data.drawingData;
+    const img = new Image();
+    img.onload = () => {
+      remoteCtx.drawImage(img, 0, 0, 1, 1);
+      remoteCtx.restore();
+    };
+    img.src = data.drawingData;
+  }
 }
 
 // Drawing state
@@ -242,8 +246,130 @@ let isDrawing = false;
 let drawingEnabled = false;
 let lastX = 0;
 let lastY = 0;
-let userDrawing = new Image(); // Store drawing as image
 let drawingBounds = { left: 0, top: 0, width: 0, height: 0 }; // Track face bounds for drawing
+
+// Create drawing buffer canvas
+const drawingBuffer = document.createElement('canvas');
+drawingBuffer.width = 1000; // Fixed size buffer for high quality
+drawingBuffer.height = 1000;
+const bufferCtx = drawingBuffer.getContext('2d');
+bufferCtx.lineCap = 'round';
+bufferCtx.lineJoin = 'round';
+
+// Modified draw function to use relative coordinates
+function draw(e) {
+  if (!isDrawing || !drawingEnabled) return;
+  
+  e.preventDefault();
+  
+  // Convert mouse/touch coordinates to relative position within face bounds
+  const rect = drawingCanvas.getBoundingClientRect();
+  const x = (e.clientX || e.touches[0].clientX) - rect.left;
+  const y = (e.clientY || e.touches[0].clientY) - rect.top;
+  
+  // Convert to relative coordinates (0-1 range)
+  const relativeX = (x - drawingBounds.left) / drawingBounds.width;
+  const relativeY = (y - drawingBounds.top) / drawingBounds.height;
+  
+  const lastRelativeX = (lastX - drawingBounds.left) / drawingBounds.width;
+  const lastRelativeY = (lastY - drawingBounds.top) / drawingBounds.height;
+  
+  // Draw in buffer (normalized 0-1 space)
+  bufferCtx.beginPath();
+  bufferCtx.moveTo(lastRelativeX * 1000, lastRelativeY * 1000);
+  bufferCtx.lineTo(relativeX * 1000, relativeY * 1000);
+  bufferCtx.strokeStyle = drawingSettings.color;
+  bufferCtx.lineWidth = drawingSettings.width * 2;
+  bufferCtx.stroke();
+  
+  // Draw on screen
+  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  drawingCtx.save();
+  drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+  drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+  drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
+  drawingCtx.restore();
+  
+  // Broadcast drawing update
+  if (room) {
+    room.send({
+      type: 'drawingUpdate',
+      clientId: room.party.client.id,
+      drawingData: drawingBuffer.toDataURL(),
+      faceBounds: drawingBounds
+    });
+  }
+  
+  [lastX, lastY] = [x, y];
+}
+
+function startDrawing(e) {
+  if (!drawingEnabled) return;
+  isDrawing = true;
+  const rect = drawingCanvas.getBoundingClientRect();
+  lastX = (e.clientX || e.touches[0].clientX) - rect.left;
+  lastY = (e.clientY || e.touches[0].clientY) - rect.top;
+}
+
+function clearDrawing() {
+  bufferCtx.clearRect(0, 0, drawingBuffer.width, drawingBuffer.height);
+  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  
+  if (room) {
+    room.send({
+      type: 'drawingUpdate',
+      clientId: room.party.client.id,
+      drawingData: drawingBuffer.toDataURL(),
+      faceBounds: drawingBounds
+    });
+  }
+}
+
+// Drawing settings
+const drawingSettings = {
+  color: '#ff0000',
+  width: 5
+};
+
+// Event listeners for drawing controls
+drawingModeToggle.addEventListener('change', (e) => {
+  drawingEnabled = e.target.checked;
+  drawingControls.style.display = drawingEnabled ? 'block' : 'none';
+  drawingCanvas.classList.toggle('drawing-mode', drawingEnabled);
+});
+
+drawingColorInput.addEventListener('input', (e) => {
+  drawingSettings.color = e.target.value;
+});
+
+drawingWidthInput.addEventListener('input', (e) => {
+  drawingSettings.width = e.target.value;
+  drawingWidthValue.textContent = e.target.value;
+});
+
+clearDrawingBtn.addEventListener('click', clearDrawing);
+
+// Drawing event handlers
+drawingCanvas.addEventListener('mousedown', startDrawing);
+drawingCanvas.addEventListener('mousemove', draw);
+drawingCanvas.addEventListener('mouseup', stopDrawing);
+drawingCanvas.addEventListener('mouseleave', stopDrawing);
+
+// Touch support
+drawingCanvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  startDrawing(e);
+});
+drawingCanvas.addEventListener('touchmove', (e) => {
+  e.preventDefault();
+  draw(e);
+});
+drawingCanvas.addEventListener('touchend', stopDrawing);
+drawingCanvas.addEventListener('touchcancel', stopDrawing);
+
+function stopDrawing() {
+  isDrawing = false;
+}
 
 // Helper function to get face bounds from landmarks
 function getFaceBounds(landmarks) {
@@ -269,123 +395,6 @@ function getFaceBounds(landmarks) {
   };
 }
 
-// Modified draw function to use relative coordinates
-function draw(e) {
-  if (!isDrawing || !drawingEnabled) return;
-  
-  // Convert mouse coordinates to relative position within face bounds
-  const relativeX = (e.offsetX - drawingBounds.left) / drawingBounds.width;
-  const relativeY = (e.offsetY - drawingBounds.top) / drawingBounds.height;
-  
-  const lastRelativeX = (lastX - drawingBounds.left) / drawingBounds.width;
-  const lastRelativeY = (lastY - drawingBounds.top) / drawingBounds.height;
-  
-  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-  drawingCtx.save();
-  
-  // Transform drawing context to match face bounds
-  drawingCtx.translate(drawingBounds.left, drawingBounds.top);
-  drawingCtx.scale(drawingBounds.width, drawingBounds.height);
-  
-  // Draw previous content
-  if (userDrawing.src) {
-    drawingCtx.drawImage(userDrawing, 0, 0, 1, 1);
-  }
-  
-  // Draw new line
-  drawingCtx.beginPath();
-  drawingCtx.moveTo(lastRelativeX, lastRelativeY);
-  drawingCtx.lineTo(relativeX, relativeY);
-  drawingCtx.strokeStyle = drawingSettings.color;
-  drawingCtx.lineWidth = drawingSettings.width / drawingBounds.width;
-  drawingCtx.lineCap = 'round';
-  drawingCtx.stroke();
-  
-  drawingCtx.restore();
-  
-  // Update drawing image and broadcast
-  userDrawing.src = drawingCanvas.toDataURL();
-  if (room) {
-    room.send({
-      type: 'drawingUpdate',
-      clientId: room.party.client.id,
-      drawingData: userDrawing.src,
-      faceBounds: drawingBounds
-    });
-  }
-  
-  [lastX, lastY] = [e.offsetX, e.offsetY];
-}
-
-function startDrawing(e) {
-  if (!drawingEnabled) return;
-  isDrawing = true;
-  [lastX, lastY] = [e.offsetX, e.offsetY];
-}
-
-// Drawing settings
-const drawingSettings = {
-  color: '#ff0000',
-  width: 5
-};
-
-// Event listeners for drawing controls
-drawingModeToggle.addEventListener('change', (e) => {
-  drawingEnabled = e.target.checked;
-  drawingControls.style.display = drawingEnabled ? 'block' : 'none';
-  drawingCanvas.classList.toggle('drawing-mode', drawingEnabled);
-});
-
-drawingColorInput.addEventListener('input', (e) => {
-  drawingSettings.color = e.target.value;
-});
-
-drawingWidthInput.addEventListener('input', (e) => {
-  drawingSettings.width = e.target.value;
-  drawingWidthValue.textContent = e.target.value;
-});
-
-clearDrawingBtn.addEventListener('click', () => {
-  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-  // Create new image data from cleared canvas
-  userDrawing = new Image();
-  userDrawing.src = drawingCanvas.toDataURL();
-  // Broadcast cleared drawing in multiplayer
-  if (room) {
-    room.send({
-      type: 'drawingUpdate',
-      clientId: room.party.client.id,
-      drawingData: userDrawing.src,
-      faceBounds: drawingBounds
-    });
-  }
-});
-
-// Drawing event handlers
-drawingCanvas.addEventListener('mousedown', startDrawing);
-drawingCanvas.addEventListener('mousemove', draw);
-drawingCanvas.addEventListener('mouseup', stopDrawing);
-drawingCanvas.addEventListener('mouseout', stopDrawing);
-
-// Touch support
-drawingCanvas.addEventListener('touchstart', handleTouch);
-drawingCanvas.addEventListener('touchmove', handleTouch);
-drawingCanvas.addEventListener('touchend', stopDrawing);
-
-function handleTouch(e) {
-  e.preventDefault();
-  const touch = e.touches[0];
-  const mouseEvent = new MouseEvent(e.type === 'touchstart' ? 'mousedown' : 'mousemove', {
-    clientX: touch.clientX,
-    clientY: touch.clientY
-  });
-  drawingCanvas.dispatchEvent(mouseEvent);
-}
-
-function stopDrawing() {
-  isDrawing = false;
-}
-
 function onResults(results) {
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
@@ -398,15 +407,13 @@ function onResults(results) {
       // Update drawing bounds based on face position
       drawingBounds = getFaceBounds(smoothedLandmarks);
       
-      // Update drawing position
-      if (userDrawing.src) {
-        drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-        drawingCtx.save();
-        drawingCtx.translate(drawingBounds.left, drawingBounds.top);
-        drawingCtx.scale(drawingBounds.width, drawingBounds.height);
-        drawingCtx.drawImage(userDrawing, 0, 0, 1, 1);
-        drawingCtx.restore();
-      }
+      // Update drawing position based on face bounds
+      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+      drawingCtx.save();
+      drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+      drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+      drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
+      drawingCtx.restore();
 
       canvasCtx.lineWidth = settings.lineWidth;
       canvasCtx.strokeStyle = settings.lineColor;
@@ -500,12 +507,12 @@ function onResize() {
   drawingCanvas.width = window.innerWidth;
   drawingCanvas.height = window.innerHeight;
   // Redraw user drawing after resize
-  if (userDrawing.src) {
+  if (drawingBuffer.toDataURL()) {
     drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
     drawingCtx.save();
     drawingCtx.translate(drawingBounds.left, drawingBounds.top);
     drawingCtx.scale(drawingBounds.width, drawingBounds.height);
-    drawingCtx.drawImage(userDrawing, 0, 0, 1, 1);
+    drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
     drawingCtx.restore();
   }
 }
