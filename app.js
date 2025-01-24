@@ -228,16 +228,7 @@ function updateRemoteDrawing(data) {
     remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
     remoteCtx.save();
     
-    // Center of face bounds for rotation
-    const centerX = data.faceBounds.left + data.faceBounds.width / 2;
-    const centerY = data.faceBounds.top + data.faceBounds.height / 2;
-    
-    // Apply transformations around center point
-    remoteCtx.translate(centerX, centerY);
-    remoteCtx.rotate(data.headRotation);
-    remoteCtx.translate(-centerX, -centerY);
-    
-    // Apply face bounds transformation
+    // Transform drawing to match received face bounds
     remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
     remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
     
@@ -250,21 +241,9 @@ function updateRemoteDrawing(data) {
   }
 }
 
-// Helper function to calculate head rotation angle from landmarks
-function calculateHeadRotation(landmarks) {
-  // Use points around the face to determine rotation
-  const leftEye = landmarks[33];  // Left eye outer corner
-  const rightEye = landmarks[263]; // Right eye outer corner
-  const angle = Math.atan2(
-    rightEye.y - leftEye.y,
-    rightEye.x - leftEye.x
-  );
-  return angle;
-}
-
-// Drawing state
+// Modified drawing state
 let isDrawing = false;
-let drawingEnabled = false;
+let drawingEnabled = true; // Always enabled now
 let lastX = 0;
 let lastY = 0;
 let drawingBounds = { left: 0, top: 0, width: 0, height: 0 }; // Track face bounds for drawing
@@ -284,12 +263,6 @@ const drawingSettings = {
 };
 
 // Event listeners for drawing controls
-drawingModeToggle.addEventListener('change', (e) => {
-  drawingEnabled = e.target.checked;
-  drawingControls.style.display = drawingEnabled ? 'block' : 'none';
-  drawingCanvas.classList.toggle('drawing-mode', drawingEnabled);
-});
-
 drawingColorInput.addEventListener('input', (e) => {
   drawingSettings.color = e.target.value;
 });
@@ -319,6 +292,10 @@ drawingCanvas.addEventListener('touchmove', (e) => {
 drawingCanvas.addEventListener('touchend', stopDrawing);
 drawingCanvas.addEventListener('touchcancel', stopDrawing);
 
+function stopDrawing() {
+  isDrawing = false;
+}
+
 function startDrawing(e) {
   if (!drawingEnabled) return;
   isDrawing = true;
@@ -342,48 +319,26 @@ function clearDrawing() {
   }
 }
 
-function stopDrawing() {
-  isDrawing = false;
-}
-
 function draw(e) {
   if (!isDrawing || !drawingEnabled) return;
   
   e.preventDefault();
   
+  // Convert mouse/touch coordinates to relative position within face bounds
   const rect = drawingCanvas.getBoundingClientRect();
+  
+  // Adjust for mirroring by inverting the x coordinate
   const x = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
   const y = (e.clientY || e.touches[0].clientY) - rect.top;
   
-  // Get current head rotation
-  const headRotation = calculateHeadRotation(previousLandmarks);
+  // Convert to relative coordinates (0-1 range)
+  const relativeX = (x - drawingBounds.left) / drawingBounds.width;
+  const relativeY = (y - drawingBounds.top) / drawingBounds.height;
   
-  // Center of face bounds
-  const centerX = drawingBounds.left + drawingBounds.width / 2;
-  const centerY = drawingBounds.top + drawingBounds.height / 2;
+  const lastRelativeX = (lastX - drawingBounds.left) / drawingBounds.width;
+  const lastRelativeY = (lastY - drawingBounds.top) / drawingBounds.height;
   
-  // Convert to relative coordinates accounting for rotation
-  // Translate point to origin
-  const dx = x - centerX;
-  const dy = y - centerY;
-  
-  // Rotate point
-  const rotatedX = dx * Math.cos(-headRotation) - dy * Math.sin(-headRotation);
-  const rotatedY = dx * Math.sin(-headRotation) + dy * Math.cos(-headRotation);
-  
-  // Translate back and convert to relative coordinates
-  const relativeX = (rotatedX + centerX - drawingBounds.left) / drawingBounds.width;
-  const relativeY = (rotatedY + centerY - drawingBounds.top) / drawingBounds.height;
-  
-  // Calculate previous point with same transformation
-  const prevDx = lastX - centerX;
-  const prevDy = lastY - centerY;
-  const prevRotatedX = prevDx * Math.cos(-headRotation) - prevDy * Math.sin(-headRotation);
-  const prevRotatedY = prevDx * Math.sin(-headRotation) + prevDy * Math.cos(-headRotation);
-  const lastRelativeX = (prevRotatedX + centerX - drawingBounds.left) / drawingBounds.width;
-  const lastRelativeY = (prevRotatedY + centerY - drawingBounds.top) / drawingBounds.height;
-  
-  // Draw in buffer
+  // Draw in buffer (normalized 0-1 space)
   bufferCtx.beginPath();
   bufferCtx.moveTo(lastRelativeX * 1000, lastRelativeY * 1000);
   bufferCtx.lineTo(relativeX * 1000, relativeY * 1000);
@@ -391,14 +346,21 @@ function draw(e) {
   bufferCtx.lineWidth = drawingSettings.width * 2;
   bufferCtx.stroke();
   
+  // Draw on screen
+  drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+  drawingCtx.save();
+  drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+  drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+  drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
+  drawingCtx.restore();
+  
   // Broadcast drawing update
   if (room) {
     room.send({
       type: 'drawingUpdate',
       clientId: room.party.client.id,
       drawingData: drawingBuffer.toDataURL(),
-      faceBounds: drawingBounds,
-      headRotation: headRotation
+      faceBounds: drawingBounds
     });
   }
   
@@ -438,26 +400,12 @@ function onResults(results) {
       const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
       previousLandmarks = smoothedLandmarks;
 
-      // Calculate head rotation
-      const headRotation = calculateHeadRotation(smoothedLandmarks);
-
       // Update drawing bounds based on face position
       drawingBounds = getFaceBounds(smoothedLandmarks);
       
-      // Update drawing position based on face bounds and rotation
+      // Update drawing position based on face bounds
       drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
       drawingCtx.save();
-      
-      // Center of face bounds for rotation
-      const centerX = drawingBounds.left + drawingBounds.width / 2;
-      const centerY = drawingBounds.top + drawingBounds.height / 2;
-      
-      // Apply transformations around center point
-      drawingCtx.translate(centerX, centerY);
-      drawingCtx.rotate(headRotation);
-      drawingCtx.translate(-centerX, -centerY);
-      
-      // Apply face bounds transformation
       drawingCtx.translate(drawingBounds.left, drawingBounds.top);
       drawingCtx.scale(drawingBounds.width, drawingBounds.height);
       drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
@@ -491,8 +439,7 @@ function onResults(results) {
             lineColor: settings.lineColor,
             glowIntensity: settings.glowIntensity
           },
-          faceBounds: drawingBounds,
-          headRotation: headRotation
+          faceBounds: drawingBounds
         });
       }
     }
@@ -549,12 +496,14 @@ const FACEMESH_FACE_OVAL = [
 let previousLandmarks = null;
 const smoothingFactor = 0.5;
 
-// Adjust canvas size to match viewport
+// Update how drawing canvas is initialized
 function onResize() {
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
   drawingCanvas.width = window.innerWidth;
   drawingCanvas.height = window.innerHeight;
+  drawingCanvas.classList.add('drawing-mode'); // Always in drawing mode
+  drawingControls.style.display = 'block'; // Always show controls
   // Redraw user drawing after resize
   if (drawingBuffer.toDataURL()) {
     drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
