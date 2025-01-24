@@ -35,6 +35,13 @@ const startButton = document.getElementById('startButton');
 
 let room = null;
 
+// Constants for inactivity handling
+const INACTIVITY_TIMEOUT = 30000; // 30 seconds in milliseconds
+const CLEANUP_INTERVAL = 5000; // Check every 5 seconds
+
+// Map to store last activity timestamps
+const lastActivityMap = new Map();
+
 // Settings event listeners
 lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
 lineWidthInput.addEventListener('input', (e) => {
@@ -89,12 +96,19 @@ function setupMultiplayer() {
     playerList.innerHTML = '';
     for (const clientId in peers) {
       const { avatarUrl, username } = peers[clientId];
+      
+      // Update last activity timestamp for new peers
+      if (!lastActivityMap.has(clientId)) {
+        lastActivityMap.set(clientId, Date.now());
+      }
+      
       const playerItem = document.createElement('div');
       playerItem.className = 'player-item';
       playerItem.innerHTML = `
         <img class="player-avatar" src="${avatarUrl}" alt="${username}">
         <span>${username}</span>
       `;
+      
       // Add a canvas for this player's face mesh
       const playerCanvas = document.createElement('canvas');
       playerCanvas.className = 'remote-face-mesh';
@@ -107,19 +121,18 @@ function setupMultiplayer() {
     }
   });
 
-  // Clean up disconnected player canvases
+  // Clean up disconnected player canvases and handle inactivity
   room.onmessage = (event) => {
     const data = event.data;
     switch (data.type) {
       case 'disconnected':
-        const disconnectedCanvas = document.getElementById(`face-mesh-${data.clientId}`);
-        if (disconnectedCanvas) {
-          disconnectedCanvas.remove();
-        }
+        cleanupUser(data.clientId);
         break;
       case 'faceMeshUpdate':
         if (data.clientId !== room.party.client.id) {
           updateRemoteFaceMesh(data);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
         }
         break;
       case 'userSettings':
@@ -128,16 +141,23 @@ function setupMultiplayer() {
       case 'drawingUpdate':
         if (data.clientId !== room.party.client.id) {
           updateRemoteDrawing(data);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
         }
         break;
       case 'transcription':
         if (data.clientId !== room.party.client.id) {
           addMessageToLog(data.username, data.text);
           playTTS(data.text);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
         }
         break;
     }
   };
+
+  // Start the inactivity checker
+  startInactivityChecker();
 
   // Send initial settings when joining
   room.send({
@@ -401,6 +421,11 @@ function getFaceBounds(landmarks) {
 }
 
 function onResults(results) {
+  // Update current user's activity timestamp
+  if (room && room.party.client.id) {
+    lastActivityMap.set(room.party.client.id, Date.now());
+  }
+  
   canvasCtx.save();
   canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
@@ -604,7 +629,14 @@ const synth = window.speechSynthesis;
 let voices = [];
 const defaultVoice = {
   name: 'Microsoft David - English (United States)',
-  fallback: 'Google US English'
+  fallbacks: [
+    'Google US English',
+    'en-US',
+    'English United States',
+    'en_US',
+    'English',
+    'en'
+  ]
 };
 
 function populateVoiceSelect() {
@@ -614,51 +646,72 @@ function populateVoiceSelect() {
   // Clear existing options
   voiceSelect.innerHTML = '';
   
-  // Add voices to select
-  voices.forEach(voice => {
+  // Add voices to select, filtering for English voices first
+  const englishVoices = voices.filter(voice => 
+    voice.lang.toLowerCase().includes('en') ||
+    voice.name.toLowerCase().includes('english')
+  );
+  
+  const otherVoices = voices.filter(voice => 
+    !voice.lang.toLowerCase().includes('en') &&
+    !voice.name.toLowerCase().includes('english')
+  );
+  
+  // Add English voices first
+  englishVoices.forEach(voice => {
     const option = document.createElement('option');
     option.value = voice.name;
     option.textContent = `${voice.name} (${voice.lang})`;
     voiceSelect.appendChild(option);
   });
   
-  // Try to set default voice
-  const preferredVoice = voices.find(v => v.name === defaultVoice.name) || 
-                        voices.find(v => v.name === defaultVoice.fallback) ||
-                        voices.find(v => v.lang === 'en-US') ||
-                        voices[0];
-                        
-  if (preferredVoice) {
-    voiceSelect.value = preferredVoice.name;
+  // Add separator if we have both types
+  if (englishVoices.length > 0 && otherVoices.length > 0) {
+    const separator = document.createElement('option');
+    separator.disabled = true;
+    separator.textContent = '──────────';
+    voiceSelect.appendChild(separator);
+  }
+  
+  // Add other voices
+  otherVoices.forEach(voice => {
+    const option = document.createElement('option');
+    option.value = voice.name;
+    option.textContent = `${voice.name} (${voice.lang})`;
+    voiceSelect.appendChild(option);
+  });
+  
+  // Try to set default voice using fallbacks
+  let selectedVoice = voices.find(v => v.name === defaultVoice.name);
+  
+  if (!selectedVoice) {
+    // Try each fallback until we find a match
+    for (const fallback of defaultVoice.fallbacks) {
+      selectedVoice = voices.find(v => 
+        v.name.toLowerCase().includes(fallback.toLowerCase()) ||
+        v.lang.toLowerCase().includes(fallback.toLowerCase())
+      );
+      if (selectedVoice) break;
+    }
+  }
+  
+  // If still no match, use first English voice or first available voice
+  if (!selectedVoice) {
+    selectedVoice = englishVoices[0] || voices[0];
+  }
+  
+  if (selectedVoice) {
+    voiceSelect.value = selectedVoice.name;
   }
 }
 
+// Call immediately in case voices are already loaded
+populateVoiceSelect();
+
+// Also listen for voices changed event
 synth.addEventListener('voiceschanged', populateVoiceSelect);
 
-// Initialize speech recognition! 
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-const recognition = new SpeechRecognition();
-recognition.continuous = true;
-recognition.interimResults = true;
-
-// Configure recognition
-recognition.lang = 'en-US';
-
-let recognitionActive = false;
-
-async function setupVoiceChat() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    // We only need the stream to enable the microphone for speech recognition
-    
-    // Don't auto-start recognition anymore, wait for button press
-    recognitionActive = false;
-  } catch (error) {
-    console.error('Error accessing microphone:', error);
-    alert('Unable to access microphone. Please check permissions.');
-  }
-}
-
+// Update voice selection in playTTS function
 let speechQueue = [];
 let isSpeaking = false;
 
@@ -684,12 +737,25 @@ function processQueue() {
   
   const utterance = new SpeechSynthesisUtterance(text);
   
-  // Get selected voice
+  // Get selected voice with improved fallback handling
   const selectedVoiceName = document.getElementById('voiceSelect').value;
-  const selectedVoice = voices.find(v => v.name === selectedVoiceName) || 
-                       voices.find(v => v.name === defaultVoice.fallback) ||
-                       voices.find(v => v.lang === 'en-US') ||
-                       voices[0];
+  let selectedVoice = voices.find(v => v.name === selectedVoiceName);
+  
+  if (!selectedVoice) {
+    // Try fallbacks if selected voice isn't available
+    for (const fallback of defaultVoice.fallbacks) {
+      selectedVoice = voices.find(v => 
+        v.name.toLowerCase().includes(fallback.toLowerCase()) ||
+        v.lang.toLowerCase().includes(fallback.toLowerCase())
+      );
+      if (selectedVoice) break;
+    }
+    
+    // Use first English voice or first available as last resort
+    if (!selectedVoice) {
+      selectedVoice = voices.find(v => v.lang.toLowerCase().includes('en')) || voices[0];
+    }
+  }
   
   if (selectedVoice) {
     utterance.voice = selectedVoice;
@@ -710,6 +776,30 @@ function processQueue() {
   };
   
   synth.speak(utterance);
+}
+
+// Initialize speech recognition! 
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = new SpeechRecognition();
+recognition.continuous = true;
+recognition.interimResults = true;
+
+// Configure recognition
+recognition.lang = 'en-US';
+
+let recognitionActive = false;
+
+async function setupVoiceChat() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // We only need the stream to enable the microphone for speech recognition
+    
+    // Don't auto-start recognition anymore, wait for button press
+    recognitionActive = false;
+  } catch (error) {
+    console.error('Error accessing microphone:', error);
+    alert('Unable to access microphone. Please check permissions.');
+  }
 }
 
 // Update the speech recognition event handlers
@@ -795,4 +885,38 @@ function addMessageToLog(username, text) {
   while (messageLog.children.length > 50) {
     messageLog.removeChild(messageLog.firstChild);
   }
+}
+
+function cleanupUser(clientId) {
+  // Remove the user's face mesh canvas
+  const disconnectedCanvas = document.getElementById(`face-mesh-${clientId}`);
+  if (disconnectedCanvas) {
+    disconnectedCanvas.remove();
+  }
+  
+  // Remove from activity tracking
+  lastActivityMap.delete(clientId);
+  
+  // Remove from user settings
+  userSettings.delete(clientId);
+  
+  // Remove from user drawings
+  userDrawings.delete(clientId);
+}
+
+function startInactivityChecker() {
+  setInterval(() => {
+    const now = Date.now();
+    
+    // Check each user's last activity
+    for (const [clientId, lastActivity] of lastActivityMap.entries()) {
+      if (now - lastActivity > INACTIVITY_TIMEOUT) {
+        // Remove inactive user
+        cleanupUser(clientId);
+        
+        // Add system message to chat
+        addMessageToLog('System', `${room.party.peers[clientId]?.username || 'User'} removed due to inactivity`);
+      }
+    }
+  }, CLEANUP_INTERVAL);
 }
