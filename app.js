@@ -264,7 +264,9 @@ function draw(e) {
   
   // Convert mouse/touch coordinates to relative position within face bounds
   const rect = drawingCanvas.getBoundingClientRect();
-  const x = (e.clientX || e.touches[0].clientX) - rect.left;
+  
+  // Adjust for mirroring by inverting the x coordinate
+  const x = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
   const y = (e.clientY || e.touches[0].clientY) - rect.top;
   
   // Convert to relative coordinates (0-1 range)
@@ -307,7 +309,8 @@ function startDrawing(e) {
   if (!drawingEnabled) return;
   isDrawing = true;
   const rect = drawingCanvas.getBoundingClientRect();
-  lastX = (e.clientX || e.touches[0].clientX) - rect.left;
+  // Adjust for mirroring
+  lastX = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
   lastY = (e.clientY || e.touches[0].clientY) - rect.top;
 }
 
