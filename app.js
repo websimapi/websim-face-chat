@@ -255,6 +255,7 @@ let drawingEnabled = true; // Always enabled now
 let lastX = 0;
 let lastY = 0;
 let drawingBounds = { left: 0, top: 0, width: 0, height: 0 }; // Track face bounds for drawing
+let currentTranscript = ''; // Add this at the top with other state variables
 
 // Create drawing buffer canvas
 const drawingBuffer = document.createElement('canvas');
@@ -624,6 +625,40 @@ async function setupVoiceChat() {
   }
 }
 
+// Update the speech recognition event handlers
+recognition.onresult = (event) => {
+  const last = event.results.length - 1;
+  const result = event.results[last];
+  
+  if (result.isFinal) {
+    const finalText = result[0].transcript.trim();
+    
+    // Only send and process if we have text
+    if (finalText) {
+      // Send the complete transcribed text to peers
+      room.send({
+        type: 'transcription',
+        text: finalText,
+        clientId: room.party.client.id,
+        username: room.party.client.username
+      });
+      
+      addMessageToLog(room.party.client.username, finalText);
+      
+      // Play TTS for self if enabled
+      if (hearSelfCheckbox.checked) {
+        playTTS(finalText);
+      }
+    }
+    
+    // Reset the transcript
+    currentTranscript = '';
+  } else {
+    // Accumulate interim results but don't send them
+    currentTranscript = result[0].transcript;
+  }
+};
+
 // Voice button event listeners
 voiceButton.addEventListener('pointerdown', () => {
   if (!isRecording) {
@@ -663,28 +698,76 @@ recognition.onend = () => {
 };
 
 // Speech recognition event handlers
-recognition.onresult = (event) => {
-  const last = event.results.length - 1;
-  const text = event.results[last][0].transcript;
+// recognition.onresult = (event) => {
+//   const last = event.results.length - 1;
+//   const text = event.results[last][0].transcript;
   
-  // Only process when we have a final result
-  if (event.results[last].isFinal) {
-    // Send the transcribed text to peers
-    room.send({
-      type: 'transcription',
-      text: text,
-      clientId: room.party.client.id,
-      username: room.party.client.username
-    });
+//   if (event.results[last].isFinal) {
+//     // Send the transcribed text to peers
+//     room.send({
+//       type: 'transcription',
+//       text: text,
+//       clientId: room.party.client.id,
+//       username: room.party.client.username
+//     });
     
-    addMessageToLog(room.party.client.username, text);
+//     addMessageToLog(room.party.client.username, text);
     
-    // Play TTS for self if enabled
-    if (hearSelfCheckbox.checked) {
-      playTTS(text);
-    }
+//     // Play TTS for self if enabled
+//     if (hearSelfCheckbox.checked) {
+//       playTTS(text);
+//     }
+//   }
+// };
+
+let speechQueue = [];
+let isSpeaking = false;
+
+function playTTS(text) {
+  // Add the new text to the queue
+  speechQueue.push(text);
+  
+  // If not currently speaking, start processing the queue
+  if (!isSpeaking) {
+    processQueue();
   }
-};
+}
+
+function processQueue() {
+  if (speechQueue.length === 0) {
+    isSpeaking = false;
+    return;
+  }
+  
+  isSpeaking = true;
+  
+  // Cancel any ongoing speech
+  synth.cancel();
+  
+  // Get the next text to speak
+  const text = speechQueue.shift();
+  
+  // Create and configure new utterance
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.rate = 1.0;
+  utterance.pitch = 1.0;
+  utterance.volume = 1.0;
+  
+  // Add error handling
+  utterance.onerror = (event) => {
+    console.error('TTS Error:', event);
+    isSpeaking = false;
+    processQueue(); // Continue with next item in queue
+  };
+  
+  // When speech ends, process next item in queue
+  utterance.onend = () => {
+    processQueue();
+  };
+  
+  // Speak the text
+  synth.speak(utterance);
+}
 
 function addMessageToLog(username, text) {
   const messageDiv = document.createElement('div');
@@ -697,24 +780,4 @@ function addMessageToLog(username, text) {
   while (messageLog.children.length > 50) {
     messageLog.removeChild(messageLog.firstChild);
   }
-}
-
-// Dedicated TTS function
-function playTTS(text) {
-  // Cancel any ongoing speech
-  synth.cancel();
-  
-  // Create and configure new utterance
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.rate = 1.0;
-  utterance.pitch = 1.0;
-  utterance.volume = 1.0;
-  
-  // Add error handling
-  utterance.onerror = (event) => {
-    console.error('TTS Error:', event);
-  };
-  
-  // Speak the text
-  synth.speak(utterance);
 }
