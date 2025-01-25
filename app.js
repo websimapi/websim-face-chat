@@ -5,7 +5,9 @@ let settings = {
   glowIntensity: 10
 };
 
+// Wait for DOM to be fully loaded
 document.addEventListener('DOMContentLoaded', () => {
+  // DOM Elements - with null checks
   const videoElement = document.createElement('video');
   videoElement.id = 'input';
   videoElement.style.visibility = 'hidden';
@@ -18,19 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const settingsModal = document.getElementById('settings-modal');
   const container = document.querySelector('.container');
-  const drawingControls = document.querySelector('.drawing-controls');
-  const drawingColorInput = document.getElementById('drawingColor');
-  const drawingWidthInput = document.getElementById('drawingWidth');
-  const drawingWidthValue = document.getElementById('drawingWidthValue');
-  const clearDrawingBtn = document.getElementById('clearDrawing');
-
-  // Create a new canvas for drawing
-  const drawingCanvas = document.createElement('canvas');
-  drawingCanvas.id = 'drawingCanvas';
-  container.appendChild(drawingCanvas);
-  const drawingCtx = drawingCanvas.getContext('2d');
-
-  // Settings inputs
+  
+  // Initialize input elements only if they exist
   const lineColorInput = document.getElementById('lineColor');
   const lineWidthInput = document.getElementById('lineWidth');
   const lineWidthValue = document.getElementById('lineWidthValue');
@@ -38,11 +29,47 @@ document.addEventListener('DOMContentLoaded', () => {
   const glowIntensityValue = document.getElementById('glowIntensityValue');
   const backgroundPromptInput = document.getElementById('backgroundPrompt');
   const startButton = document.getElementById('startButton');
+  const drawingColorInput = document.getElementById('drawingColor');
+  const drawingWidthInput = document.getElementById('drawingWidth');
+  const drawingWidthValue = document.getElementById('drawingWidthValue');
+  const clearDrawingBtn = document.getElementById('clearDrawing');
   const voiceButton = document.getElementById('voiceButton');
   const hearSelfCheckbox = document.getElementById('hearSelf');
   const messageLog = document.getElementById('messageLog');
 
-  // Initialize room as null
+  // Create a new canvas for drawing
+  const drawingCanvas = document.createElement('canvas');
+  drawingCanvas.id = 'drawingCanvas';
+  if (container) {
+    container.appendChild(drawingCanvas);
+  }
+  const drawingCtx = drawingCanvas.getContext('2d');
+
+  // Create drawing buffer canvas
+  const drawingBuffer = document.createElement('canvas');
+  drawingBuffer.width = 1000;
+  drawingBuffer.height = 1000;
+  const bufferCtx = drawingBuffer.getContext('2d');
+  bufferCtx.lineCap = 'round';
+  bufferCtx.lineJoin = 'round';
+
+  // Settings event listeners - with null checks
+  if (lineColorInput) {
+    lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
+  }
+  if (lineWidthInput && lineWidthValue) {
+    lineWidthInput.addEventListener('input', (e) => {
+      settings.lineWidth = e.target.value;
+      lineWidthValue.textContent = e.target.value;
+    });
+  }
+  if (glowIntensityInput && glowIntensityValue) {
+    glowIntensityInput.addEventListener('input', (e) => {
+      settings.glowIntensity = e.target.value;
+      glowIntensityValue.textContent = e.target.value;
+    });
+  }
+
   let room = null;
 
   // Constants for inactivity handling
@@ -51,17 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Map to store last activity timestamps
   const lastActivityMap = new Map();
-
-  // Settings event listeners
-  lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
-  lineWidthInput.addEventListener('input', (e) => {
-    settings.lineWidth = e.target.value;
-    lineWidthValue.textContent = e.target.value;
-  });
-  glowIntensityInput.addEventListener('input', (e) => {
-    settings.glowIntensity = e.target.value;
-    glowIntensityValue.textContent = e.target.value;
-  });
 
   let imageCounter = 0;
 
@@ -86,20 +102,145 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (startButton) {
     startButton.addEventListener('click', async () => {
-      if (settingsModal && container) {
+      if (settingsModal) {
         settingsModal.style.display = 'none';
+      }
+      if (container) {
         container.style.display = 'block';
-        
-        if (backgroundPromptInput && backgroundPromptInput.value.trim()) {
-          loadBackgroundImage(backgroundPromptInput.value.trim());
-        }
-        
-        room = new WebsimSocket();
-        setupMultiplayer();
-        
+      }
+  
+      if (backgroundPromptInput && backgroundPromptInput.value.trim()) {
+        loadBackgroundImage(backgroundPromptInput.value.trim());
+      }
+  
+      room = new WebsimSocket();
+      setupMultiplayer();
+  
+      if (videoElement) {
         camera.start();
       }
     });
+  }
+
+  function setupMultiplayer() {
+    const playerList = document.getElementById('playerList');
+  
+    // Create container for current user
+    createPlayerContainer(room.party.client.id, room.party.client.username);
+  
+    // Update player list and containers when peers change
+    room.party.subscribe((peers) => {
+      if (playerList) {
+        playerList.innerHTML = '';
+      }
+  
+      // Clean up old containers
+      document.querySelectorAll('.player-container').forEach(container => {
+        if (!peers[container.dataset.clientId]) {
+          container.remove();
+        }
+      });
+  
+      for (const clientId in peers) {
+        const { avatarUrl, username } = peers[clientId];
+  
+        // Update last activity timestamp for new peers
+        if (!lastActivityMap.has(clientId)) {
+          lastActivityMap.set(clientId, Date.now());
+        }
+  
+        // Create player list item
+        if (playerList) {
+          const playerItem = document.createElement('div');
+          playerItem.className = 'player-item';
+          playerItem.innerHTML = `
+            <img class="player-avatar" src="${avatarUrl}" alt="${username}">
+            <span>${username}</span>
+          `;
+          playerList.appendChild(playerItem);
+        }
+  
+        // Create or update player container
+        createPlayerContainer(clientId, username);
+      }
+    });
+
+    // Clean up disconnected player canvases and handle inactivity
+    room.onmessage = (event) => {
+      const data = event.data;
+      switch (data.type) {
+        case 'disconnected':
+          cleanupUser(data.clientId);
+          break;
+        case 'faceMeshUpdate':
+          if (data.clientId !== room.party.client.id) {
+            updateRemoteFaceMesh(data);
+            // Update last activity timestamp
+            lastActivityMap.set(data.clientId, Date.now());
+          }
+          break;
+        case 'userSettings':
+          updateOtherUserSettings(data);
+          break;
+        case 'drawingUpdate':
+          if (data.clientId !== room.party.client.id) {
+            updateRemoteDrawing(data);
+            // Update last activity timestamp
+            lastActivityMap.set(data.clientId, Date.now());
+          }
+          break;
+        case 'transcription':
+          if (data.clientId !== room.party.client.id) {
+            addMessageToLog(data.username, data.text);
+            playTTS(data.text);
+            // Update last activity timestamp
+            lastActivityMap.set(data.clientId, Date.now());
+          }
+          break;
+      }
+    };
+
+    // Start the inactivity checker
+    startInactivityChecker();
+
+    // Send initial settings when joining
+    room.send({
+      type: 'userSettings',
+      clientId: room.party.client.id,
+      settings: {
+        lineColor: settings.lineColor,
+        glowIntensity: settings.glowIntensity
+      }
+    });
+
+    // Send settings updates when they change
+    if (lineColorInput) {
+      lineColorInput.addEventListener('change', () => {
+        room.send({
+          type: 'userSettings',
+          clientId: room.party.client.id,
+          settings: {
+            lineColor: settings.lineColor,
+            glowIntensity: settings.glowIntensity
+          }
+        });
+      });
+    }
+
+    if (glowIntensityInput) {
+      glowIntensityInput.addEventListener('change', () => {
+        room.send({
+          type: 'userSettings',
+          clientId: room.party.client.id,
+          settings: {
+            lineColor: settings.lineColor,
+            glowIntensity: settings.glowIntensity
+          }
+        });
+      });
+    }
+
+    setupVoiceChat();
   }
 
   // Store other users' settings
@@ -204,49 +345,49 @@ document.addEventListener('DOMContentLoaded', () => {
   let drawingBounds = { left: 0, top: 0, width: 0, height: 0 }; // Track face bounds for drawing
   let currentTranscript = ''; // Add this at the top with other state variables
 
-  // Create drawing buffer canvas
-  const drawingBuffer = document.createElement('canvas');
-  drawingBuffer.width = 1000; // Fixed size buffer for high quality
-  drawingBuffer.height = 1000;
-  const bufferCtx = drawingBuffer.getContext('2d');
-  bufferCtx.lineCap = 'round';
-  bufferCtx.lineJoin = 'round';
-
-  // Drawing settings
-  const drawingSettings = {
-    color: '#ff0000',
-    width: 5
-  };
-
   // Event listeners for drawing controls
-  drawingColorInput.addEventListener('input', (e) => {
-    drawingSettings.color = e.target.value;
-  });
+  if (drawingColorInput) {
+    drawingColorInput.addEventListener('input', (e) => {
+      const drawingSettings = {
+        color: e.target.value,
+        width: 5
+      };
+    });
+  }
 
-  drawingWidthInput.addEventListener('input', (e) => {
-    drawingSettings.width = e.target.value;
-    drawingWidthValue.textContent = e.target.value;
-  });
+  if (drawingWidthInput && drawingWidthValue) {
+    drawingWidthInput.addEventListener('input', (e) => {
+      const drawingSettings = {
+        color: '#ff0000',
+        width: e.target.value
+      };
+      drawingWidthValue.textContent = e.target.value;
+    });
+  }
 
-  clearDrawingBtn.addEventListener('click', clearDrawing);
+  if (clearDrawingBtn) {
+    clearDrawingBtn.addEventListener('click', clearDrawing);
+  }
 
   // Drawing event handlers
-  drawingCanvas.addEventListener('mousedown', startDrawing);
-  drawingCanvas.addEventListener('mousemove', draw);
-  drawingCanvas.addEventListener('mouseup', stopDrawing);
-  drawingCanvas.addEventListener('mouseleave', stopDrawing);
+  if (drawingCanvas) {
+    drawingCanvas.addEventListener('mousedown', startDrawing);
+    drawingCanvas.addEventListener('mousemove', draw);
+    drawingCanvas.addEventListener('mouseup', stopDrawing);
+    drawingCanvas.addEventListener('mouseleave', stopDrawing);
 
-  // Touch support
-  drawingCanvas.addEventListener('touchstart', (e) => {
-    e.preventDefault();
-    startDrawing(e);
-  });
-  drawingCanvas.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-    draw(e);
-  });
-  drawingCanvas.addEventListener('touchend', stopDrawing);
-  drawingCanvas.addEventListener('touchcancel', stopDrawing);
+    // Touch support
+    drawingCanvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      startDrawing(e);
+    });
+    drawingCanvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      draw(e);
+    });
+    drawingCanvas.addEventListener('touchend', stopDrawing);
+    drawingCanvas.addEventListener('touchcancel', stopDrawing);
+  }
 
   function stopDrawing() {
     isDrawing = false;
@@ -266,7 +407,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function clearDrawing() {
     bufferCtx.clearRect(0, 0, drawingBuffer.width, drawingBuffer.height);
-    drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    if (drawingCtx) {
+      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    }
   
     if (room) {
       room.send({
@@ -294,17 +437,19 @@ document.addEventListener('DOMContentLoaded', () => {
     bufferCtx.beginPath();
     bufferCtx.moveTo(lastX * 1000, lastY * 1000);
     bufferCtx.lineTo(x * 1000, y * 1000);
-    bufferCtx.strokeStyle = drawingSettings.color;
-    bufferCtx.lineWidth = drawingSettings.width * 2;
+    bufferCtx.strokeStyle = '#ff0000';
+    bufferCtx.lineWidth = 10;
     bufferCtx.stroke();
   
     // Draw on screen
     const drawingCtx = document.getElementById(`face-mesh-${room.party.client.id}`).getContext('2d');
-    drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-    drawingCtx.save();
-    drawingCtx.scale(rect.width, rect.height);
-    drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
-    drawingCtx.restore();
+    if (drawingCtx) {
+      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+      drawingCtx.save();
+      drawingCtx.scale(rect.width, rect.height);
+      drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
+      drawingCtx.restore();
+    }
   
     // Send drawing update less frequently
     if (!draw.throttled) {
@@ -330,7 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
       container = document.createElement('div');
       container.className = 'player-container';
       container.dataset.clientId = clientId;
-      
+    
       // Add merge button if not current user
       if (clientId !== room.party.client.id) {
         const mergeButton = document.createElement('button');
@@ -339,7 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
         mergeButton.onclick = () => mergeWithUser(clientId);
         container.appendChild(mergeButton);
       }
-      
+    
       // Create canvas for face mesh
       const canvas = document.createElement('canvas');
       canvas.className = 'remote-face-mesh';
@@ -347,8 +492,10 @@ document.addEventListener('DOMContentLoaded', () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
       container.appendChild(canvas);
-      
-      document.querySelector('.container').appendChild(container);
+    
+      if (container) {
+        document.querySelector('.container').appendChild(container);
+      }
     }
   
     return container;
@@ -368,21 +515,6 @@ document.addEventListener('DOMContentLoaded', () => {
       targetContainer.classList.add('merged');
       currentContainer.classList.add('merged');
     }
-  }
-
-  function updateRemoteDrawing(data) {
-    const canvas = document.getElementById(`face-mesh-${data.clientId}`);
-    if (!canvas) return;
-  
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-  
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    };
-  
-    img.src = data.drawingData;
   }
 
   // Helper function to get face bounds from landmarks
@@ -415,57 +547,65 @@ document.addEventListener('DOMContentLoaded', () => {
       lastActivityMap.set(room.party.client.id, Date.now());
     }
   
-    canvasCtx.save();
-    canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+    if (canvasCtx) {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-    if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
-      const landmarks = results.multiFaceLandmarks[0];
-      const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
-      previousLandmarks = smoothedLandmarks;
+      if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+        const landmarks = results.multiFaceLandmarks[0];
+        const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
+        previousLandmarks = smoothedLandmarks;
 
-      // Update drawing bounds based on face position
-      drawingBounds = getFaceBounds(smoothedLandmarks);
-    
-      // Update drawing position based on face bounds
-      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-      drawingCtx.save();
-      drawingCtx.translate(drawingBounds.left, drawingBounds.top);
-      drawingCtx.scale(drawingBounds.width, drawingBounds.height);
-      drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
-      drawingCtx.restore();
+        // Update drawing bounds based on face position
+        drawingBounds = getFaceBounds(smoothedLandmarks);
+      
+        // Update drawing position based on face bounds
+        if (drawingCtx) {
+          drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+          drawingCtx.save();
+          drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+          drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+          drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
+          drawingCtx.restore();
+        }
 
-      canvasCtx.lineWidth = settings.lineWidth;
-      canvasCtx.strokeStyle = settings.lineColor;
-      canvasCtx.shadowColor = settings.lineColor;
-      canvasCtx.shadowBlur = settings.glowIntensity;
-    
-      // Draw face features
-      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth, canvasCtx);
+        if (canvasCtx) {
+          canvasCtx.lineWidth = settings.lineWidth;
+          canvasCtx.strokeStyle = settings.lineColor;
+          canvasCtx.shadowColor = settings.lineColor;
+          canvasCtx.shadowBlur = settings.glowIntensity;
+        
+          // Draw face features
+          drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth, canvasCtx);
+          drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth, canvasCtx);
+          drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth, canvasCtx);
+          drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
+          drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
+          drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth, canvasCtx);
+          drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth, canvasCtx);
+          drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth, canvasCtx);
 
-      // Sync face mesh and drawing data
-      if (room) {
-        room.send({
-          type: 'faceMeshUpdate',
-          landmarks: smoothedLandmarks,
-          clientId: room.party.client.id,
-          username: room.party.client.username,
-          settings: {
-            lineColor: settings.lineColor,
-            glowIntensity: settings.glowIntensity
-          },
-          faceBounds: drawingBounds,
-          drawingData: drawingBuffer.toDataURL()
-        });
+          // Sync face mesh and drawing data
+          if (room) {
+            room.send({
+              type: 'faceMeshUpdate',
+              landmarks: smoothedLandmarks,
+              clientId: room.party.client.id,
+              username: room.party.client.username,
+              settings: {
+                lineColor: settings.lineColor,
+                glowIntensity: settings.glowIntensity
+              },
+              faceBounds: drawingBounds,
+              drawingData: drawingBuffer.toDataURL()
+            });
+          }
+        }
+      }
+      if (canvasCtx) {
+        canvasCtx.restore();
       }
     }
-    canvasCtx.restore();
   }
 
   // Facial feature connections
@@ -517,21 +657,30 @@ document.addEventListener('DOMContentLoaded', () => {
   let previousLandmarks = null;
   const smoothingFactor = 0.5;
 
+  // Update how drawing canvas is initialized
   function onResize() {
-    canvasElement.width = window.innerWidth;
-    canvasElement.height = window.innerHeight;
-    drawingCanvas.width = window.innerWidth;
-    drawingCanvas.height = window.innerHeight;
-    drawingCanvas.classList.add('drawing-mode'); // Always in drawing mode
-    drawingControls.style.display = 'block'; // Always show controls
+    if (canvasElement) {
+      canvasElement.width = window.innerWidth;
+      canvasElement.height = window.innerHeight;
+    }
+    if (drawingCanvas) {
+      drawingCanvas.width = window.innerWidth;
+      drawingCanvas.height = window.innerHeight;
+      drawingCanvas.classList.add('drawing-mode'); // Always in drawing mode
+    }
+    if (drawingControls) {
+      drawingControls.style.display = 'block'; // Always show controls
+    }
     // Redraw user drawing after resize
     if (drawingBuffer.toDataURL()) {
-      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-      drawingCtx.save();
-      drawingCtx.translate(drawingBounds.left, drawingBounds.top);
-      drawingCtx.scale(drawingBounds.width, drawingBounds.height);
-      drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
-      drawingCtx.restore();
+      if (drawingCtx) {
+        drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+        drawingCtx.save();
+        drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+        drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+        drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
+        drawingCtx.restore();
+      }
     }
   }
 
@@ -549,35 +698,39 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function drawConnectors(landmarks, connections, color, width, ctx = canvasCtx) {
-    ctx.lineWidth = width;
-    ctx.strokeStyle = color;
+    if (ctx) {
+      ctx.lineWidth = width;
+      ctx.strokeStyle = color;
   
-    connections.forEach(([i, j]) => {
-      const start = landmarks[i];
-      const end = landmarks[j];
-      
-      ctx.beginPath();
-      ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-      ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-      ctx.stroke();
-    });
+      connections.forEach(([i, j]) => {
+        const start = landmarks[i];
+        const end = landmarks[j];
+  
+        ctx.beginPath();
+        ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+        ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+        ctx.stroke();
+      });
+    }
   }
 
   function drawFacialFeature(landmarks, connections, color, width, ctx = canvasCtx) {
-    ctx.lineWidth = width;
-    ctx.strokeStyle = color;
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 5;
+    if (ctx) {
+      ctx.lineWidth = width;
+      ctx.strokeStyle = color;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 5;
   
-    connections.forEach(([i, j]) => {
-      const start = landmarks[i];
-      const end = landmarks[j];
-      
-      ctx.beginPath();
-      ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-      ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-      ctx.stroke();
-    });
+      connections.forEach(([i, j]) => {
+        const start = landmarks[i];
+        const end = landmarks[j];
+  
+        ctx.beginPath();
+        ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+        ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+        ctx.stroke();
+      });
+    }
   }
 
   const faceMesh = new FaceMesh({
@@ -605,110 +758,33 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   let isRecording = false;
-  const speechRecognition = new SpeechRecognition();
-  speechRecognition.continuous = true;
-  speechRecognition.interimResults = true;
-
-  // Configure recognition
-  speechRecognition.lang = 'en-US';
-
-  let recognitionActive = false;
-
-  async function setupVoiceChat() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      // We only need the stream to enable the microphone for speech recognition
-    
-      // Don't auto-start recognition anymore, wait for button press
-      recognitionActive = false;
-    } catch (error) {
-      console.error('Error accessing microphone:', error);
-      alert('Unable to access microphone. Please check permissions.');
-    }
-  }
-
-  speechRecognition.onresult = (event) => {
-    const last = event.results.length - 1;
-    const result = event.results[last];
-  
-    if (result.isFinal) {
-      const finalText = result[0].transcript.trim();
-      
-      // Only send and process if we have text
-      if (finalText) {
-        // Send the complete transcribed text to peers
-        room.send({
-          type: 'transcription',
-          text: finalText,
-          clientId: room.party.client.id,
-          username: room.party.client.username
-        });
-        
-        addMessageToLog(room.party.client.username, finalText);
-        
-        // Play TTS for self if enabled
-        if (hearSelfCheckbox.checked) {
-          playTTS(finalText);
+  if (voiceButton) {
+    voiceButton.addEventListener('pointerdown', () => {
+      if (!isRecording) {
+        isRecording = true;
+        voiceButton.classList.add('recording');
+        if (!recognitionActive) {
+          recognition.start();
+          recognitionActive = true;
         }
       }
-      
-      // Reset the transcript
-      currentTranscript = '';
-    } else {
-      // Accumulate interim results but don't send them
-      currentTranscript = result[0].transcript;
-    }
-  };
+    });
 
-  // Voice button event listeners
-  voiceButton.addEventListener('pointerdown', () => {
-    if (!isRecording) {
-      isRecording = true;
-      voiceButton.classList.add('recording');
-      if (!recognitionActive) {
-        speechRecognition.start();
-        recognitionActive = true;
+    voiceButton.addEventListener('pointerup', () => {
+      if (isRecording) {
+        isRecording = false;
+        voiceButton.classList.remove('recording');
+        if (recognitionActive) {
+          recognition.stop();
+          recognitionActive = false;
+        }
       }
-    }
-  });
+    });
 
-  voiceButton.addEventListener('pointerup', () => {
-    if (isRecording) {
-      isRecording = false;
-      voiceButton.classList.remove('recording');
-      if (recognitionActive) {
-        speechRecognition.stop();
-        recognitionActive = false;
-      }
-    }
-  });
-
-  // Prevent scrolling when touching the voice button on mobile
-  voiceButton.addEventListener('touchmove', (e) => {
-    e.preventDefault();
-  });
-
-  // Add error handling for recognition
-  speechRecognition.onerror = (event) => {
-    console.error('Speech recognition error:', event);
-    recognitionActive = false;
-  };
-
-  speechRecognition.onend = () => {
-    recognitionActive = false;
-  };
-
-  function addMessageToLog(username, text) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message';
-    messageDiv.innerHTML = `<span class="username">${username}:</span> ${text}`;
-    messageLog.appendChild(messageDiv);
-    messageLog.scrollTop = messageLog.scrollHeight;
-  
-    // Keep only last 50 messages
-    while (messageLog.children.length > 50) {
-      messageLog.removeChild(messageLog.firstChild);
-    }
+    // Prevent scrolling when touching the voice button on mobile
+    voiceButton.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+    });
   }
 
   // Initialize speech synthesis
@@ -728,68 +804,70 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   function populateVoiceSelect() {
-    const voiceSelect = document.getElementById('voiceSelect');
-    voices = synth.getVoices();
+    if (document.getElementById('voiceSelect')) {
+      const voiceSelect = document.getElementById('voiceSelect');
+      voices = synth.getVoices();
   
-    // Clear existing options
-    voiceSelect.innerHTML = '';
+      // Clear existing options
+      voiceSelect.innerHTML = '';
   
-    // Add voices to select, filtering for English voices first
-    const englishVoices = voices.filter(voice => 
-      voice.lang.toLowerCase().includes('en') ||
-      voice.name.toLowerCase().includes('english')
-    );
+      // Add voices to select, filtering for English voices first
+      const englishVoices = voices.filter(voice => 
+        voice.lang.toLowerCase().includes('en') ||
+        voice.name.toLowerCase().includes('english')
+      );
   
-    const otherVoices = voices.filter(voice => 
-      !voice.lang.toLowerCase().includes('en') &&
-      !voice.name.toLowerCase().includes('english')
-    );
+      const otherVoices = voices.filter(voice => 
+        !voice.lang.toLowerCase().includes('en') &&
+        !voice.name.toLowerCase().includes('english')
+      );
   
-    // Add English voices first
-    englishVoices.forEach(voice => {
-      const option = document.createElement('option');
-      option.value = voice.name;
-      option.textContent = `${voice.name} (${voice.lang})`;
-      voiceSelect.appendChild(option);
-    });
+      // Add English voices first
+      englishVoices.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.name;
+        option.textContent = `${voice.name} (${voice.lang})`;
+        voiceSelect.appendChild(option);
+      });
   
-    // Add separator if we have both types
-    if (englishVoices.length > 0 && otherVoices.length > 0) {
-      const separator = document.createElement('option');
-      separator.disabled = true;
-      separator.textContent = '──────────';
-      voiceSelect.appendChild(separator);
-    }
-  
-    // Add other voices
-    otherVoices.forEach(voice => {
-      const option = document.createElement('option');
-      option.value = voice.name;
-      option.textContent = `${voice.name} (${voice.lang})`;
-      voiceSelect.appendChild(option);
-    });
-  
-    // Try to set default voice using fallbacks
-    let selectedVoice = voices.find(v => v.name === defaultVoice.name);
-  
-    if (!selectedVoice) {
-      // Try each fallback until we find a match
-      for (const fallback of defaultVoice.fallbacks) {
-        selectedVoice = voices.find(v => 
-          v.name.toLowerCase().includes(fallback.toLowerCase()) ||
-          v.lang.toLowerCase().includes(fallback.toLowerCase())
-        );
-        if (selectedVoice) break;
+      // Add separator if we have both types
+      if (englishVoices.length > 0 && otherVoices.length > 0) {
+        const separator = document.createElement('option');
+        separator.disabled = true;
+        separator.textContent = '──────────';
+        voiceSelect.appendChild(separator);
       }
-    }
   
-    // If still no match, use first English voice or first available voice
-    if (!selectedVoice) {
-      selectedVoice = englishVoices[0] || voices[0];
-    }
+      // Add other voices
+      otherVoices.forEach(voice => {
+        const option = document.createElement('option');
+        option.value = voice.name;
+        option.textContent = `${voice.name} (${voice.lang})`;
+        voiceSelect.appendChild(option);
+      });
   
-    if (selectedVoice) {
-      voiceSelect.value = selectedVoice.name;
+      // Try to set default voice using fallbacks
+      let selectedVoice = voices.find(v => v.name === defaultVoice.name);
+  
+      if (!selectedVoice) {
+        // Try each fallback until we find a match
+        for (const fallback of defaultVoice.fallbacks) {
+          selectedVoice = voices.find(v => 
+            v.name.toLowerCase().includes(fallback.toLowerCase()) ||
+            v.lang.toLowerCase().includes(fallback.toLowerCase())
+          );
+          if (selectedVoice) break;
+        }
+      }
+  
+      // If still no match, use first English voice or first available voice
+      if (!selectedVoice) {
+        selectedVoice = englishVoices[0] || voices[0];
+      }
+  
+      if (selectedVoice) {
+        voiceSelect.value = selectedVoice.name;
+      }
     }
   }
 
@@ -883,16 +961,88 @@ document.addEventListener('DOMContentLoaded', () => {
     synth.speak(utterance);
   }
 
+  // Initialize speech recognition! 
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  // Configure recognition
+  recognition.lang = 'en-US';
+
+  let recognitionActive = false;
+
+  async function setupVoiceChat() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // We only need the stream to enable the microphone for speech recognition
+    
+      // Don't auto-start recognition anymore, wait for button press
+      recognitionActive = false;
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      alert('Unable to access microphone. Please check permissions.');
+    }
+  }
+
+  // Update the speech recognition event handlers
+  recognition.onresult = (event) => {
+    const last = event.results.length - 1;
+    const result = event.results[last];
+  
+    if (result.isFinal) {
+      const finalText = result[0].transcript.trim();
+      
+      // Only send and process if we have text
+      if (finalText) {
+        // Send the complete transcribed text to peers
+        room.send({
+          type: 'transcription',
+          text: finalText,
+          clientId: room.party.client.id,
+          username: room.party.client.username
+        });
+        
+        addMessageToLog(room.party.client.username, finalText);
+        
+        // Play TTS for self if enabled
+        if (hearSelfCheckbox && hearSelfCheckbox.checked) {
+          playTTS(finalText);
+        }
+      }
+      
+      // Reset the transcript
+      currentTranscript = '';
+    } else {
+      // Accumulate interim results but don't send them
+      currentTranscript = result[0].transcript;
+    }
+  };
+
+  // Add error handling for recognition
+  recognition.onerror = (event) => {
+    console.error('Speech recognition error:', event);
+    recognitionActive = false;
+  };
+
+  recognition.onend = () => {
+    recognitionActive = false;
+  };
+
   function addMessageToLog(username, text) {
-    const messageDiv = document.createElement('div');
-    messageDiv.className = 'message';
-    messageDiv.innerHTML = `<span class="username">${username}:</span> ${text}`;
-    messageLog.appendChild(messageDiv);
-    messageLog.scrollTop = messageLog.scrollHeight;
+    if (messageLog) {
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message';
+      messageDiv.innerHTML = `<span class="username">${username}:</span> ${text}`;
+      messageLog.appendChild(messageDiv);
+      messageLog.scrollTop = messageLog.scrollHeight;
+    }
   
     // Keep only last 50 messages
-    while (messageLog.children.length > 50) {
-      messageLog.removeChild(messageLog.firstChild);
+    if (messageLog) {
+      while (messageLog.children.length > 50) {
+        messageLog.removeChild(messageLog.firstChild);
+      }
     }
   }
 
@@ -916,130 +1066,17 @@ document.addEventListener('DOMContentLoaded', () => {
   function startInactivityChecker() {
     setInterval(() => {
       const now = Date.now();
-      
+    
       // Check each user's last activity
       for (const [clientId, lastActivity] of lastActivityMap.entries()) {
         if (now - lastActivity > INACTIVITY_TIMEOUT) {
           // Remove inactive user
           cleanupUser(clientId);
-          
+        
           // Add system message to chat
           addMessageToLog('System', `${room.party.peers[clientId]?.username || 'User'} removed due to inactivity`);
         }
       }
     }, CLEANUP_INTERVAL);
-  }
-
-  function setupMultiplayer() {
-    const playerList = document.getElementById('playerList');
-  
-    // Create container for current user
-    createPlayerContainer(room.party.client.id, room.party.client.username);
-  
-    // Update player list and containers when peers change
-    room.party.subscribe((peers) => {
-      playerList.innerHTML = '';
-      
-      // Clean up old containers
-      document.querySelectorAll('.player-container').forEach(container => {
-        if (!peers[container.dataset.clientId]) {
-          container.remove();
-        }
-      });
-      
-      for (const clientId in peers) {
-        const { avatarUrl, username } = peers[clientId];
-        
-        // Update last activity timestamp for new peers
-        if (!lastActivityMap.has(clientId)) {
-          lastActivityMap.set(clientId, Date.now());
-        }
-        
-        // Create player list item
-        const playerItem = document.createElement('div');
-        playerItem.className = 'player-item';
-        playerItem.innerHTML = `
-          <img class="player-avatar" src="${avatarUrl}" alt="${username}">
-          <span>${username}</span>
-        `;
-        playerList.appendChild(playerItem);
-        
-        // Create or update player container
-        createPlayerContainer(clientId, username);
-      }
-    });
-
-    // Clean up disconnected player canvases and handle inactivity
-    room.onmessage = (event) => {
-      const data = event.data;
-      switch (data.type) {
-        case 'disconnected':
-          cleanupUser(data.clientId);
-          break;
-        case 'faceMeshUpdate':
-          if (data.clientId !== room.party.client.id) {
-            updateRemoteFaceMesh(data);
-            // Update last activity timestamp
-            lastActivityMap.set(data.clientId, Date.now());
-          }
-          break;
-        case 'userSettings':
-          updateOtherUserSettings(data);
-          break;
-        case 'drawingUpdate':
-          if (data.clientId !== room.party.client.id) {
-            updateRemoteDrawing(data);
-            // Update last activity timestamp
-            lastActivityMap.set(data.clientId, Date.now());
-          }
-          break;
-        case 'transcription':
-          if (data.clientId !== room.party.client.id) {
-            addMessageToLog(data.username, data.text);
-            playTTS(data.text);
-            // Update last activity timestamp
-            lastActivityMap.set(data.clientId, Date.now());
-          }
-          break;
-      }
-    };
-
-    // Start the inactivity checker
-    startInactivityChecker();
-
-    // Send initial settings when joining
-    room.send({
-      type: 'userSettings',
-      clientId: room.party.client.id,
-      settings: {
-        lineColor: settings.lineColor,
-        glowIntensity: settings.glowIntensity
-      }
-    });
-
-    // Send settings updates when they change
-    lineColorInput.addEventListener('change', () => {
-      room.send({
-        type: 'userSettings',
-        clientId: room.party.client.id,
-        settings: {
-          lineColor: settings.lineColor,
-          glowIntensity: settings.glowIntensity
-        }
-      });
-    });
-
-    glowIntensityInput.addEventListener('change', () => {
-      room.send({
-        type: 'userSettings',
-        clientId: room.party.client.id,
-        settings: {
-          lineColor: settings.lineColor,
-          glowIntensity: settings.glowIntensity
-        }
-      });
-    });
-
-    setupVoiceChat();
   }
 });
