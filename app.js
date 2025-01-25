@@ -88,6 +88,187 @@ startButton.addEventListener('click', async () => {
   camera.start();
 });
 
+function setupMultiplayer() {
+  const playerList = document.getElementById('playerList');
+  
+  // Update player list when peers change
+  room.party.subscribe((peers) => {
+    playerList.innerHTML = '';
+    for (const clientId in peers) {
+      const { avatarUrl, username } = peers[clientId];
+      
+      // Update last activity timestamp for new peers
+      if (!lastActivityMap.has(clientId)) {
+        lastActivityMap.set(clientId, Date.now());
+      }
+      
+      const playerItem = document.createElement('div');
+      playerItem.className = 'player-item';
+      playerItem.innerHTML = `
+        <img class="player-avatar" src="${avatarUrl}" alt="${username}">
+        <span>${username}</span>
+      `;
+      
+      // Add a canvas for this player's face mesh
+      const playerCanvas = document.createElement('canvas');
+      playerCanvas.className = 'remote-face-mesh';
+      playerCanvas.id = `face-mesh-${clientId}`;
+      playerCanvas.width = window.innerWidth;
+      playerCanvas.height = window.innerHeight;
+      document.querySelector('.container').appendChild(playerCanvas);
+      
+      playerList.appendChild(playerItem);
+    }
+  });
+
+  // Clean up disconnected player canvases and handle inactivity
+  room.onmessage = (event) => {
+    const data = event.data;
+    switch (data.type) {
+      case 'disconnected':
+        cleanupUser(data.clientId);
+        break;
+      case 'faceMeshUpdate':
+        if (data.clientId !== room.party.client.id) {
+          updateRemoteFaceMesh(data);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
+        }
+        break;
+      case 'userSettings':
+        updateOtherUserSettings(data);
+        break;
+      case 'drawingUpdate':
+        if (data.clientId !== room.party.client.id) {
+          updateRemoteDrawing(data);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
+        }
+        break;
+      case 'transcription':
+        if (data.clientId !== room.party.client.id) {
+          addMessageToLog(data.username, data.text);
+          playTTS(data.text);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
+        }
+        break;
+    }
+  };
+
+  // Start the inactivity checker
+  startInactivityChecker();
+
+  // Send initial settings when joining
+  room.send({
+    type: 'userSettings',
+    clientId: room.party.client.id,
+    settings: {
+      lineColor: settings.lineColor,
+      glowIntensity: settings.glowIntensity
+    }
+  });
+
+  // Send settings updates when they change
+  lineColorInput.addEventListener('change', () => {
+    room.send({
+      type: 'userSettings',
+      clientId: room.party.client.id,
+      settings: {
+        lineColor: settings.lineColor,
+        glowIntensity: settings.glowIntensity
+      }
+    });
+  });
+
+  glowIntensityInput.addEventListener('change', () => {
+    room.send({
+      type: 'userSettings',
+      clientId: room.party.client.id,
+      settings: {
+        lineColor: settings.lineColor,
+        glowIntensity: settings.glowIntensity
+      }
+    });
+  });
+
+  setupVoiceChat();
+}
+
+// Store other users' settings
+const userSettings = new Map();
+const userDrawings = new Map(); // Store drawings for each user
+
+function updateOtherUserSettings(data) {
+  userSettings.set(data.clientId, data.settings);
+}
+
+function updateRemoteFaceMesh(data) {
+  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
+  if (!remoteCanvas) return;
+  
+  const remoteCtx = remoteCanvas.getContext('2d');
+  remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+  
+  // Use received settings if available, otherwise generate from client ID
+  let userColor, userGlow;
+  if (data.settings) {
+    userSettings.set(data.clientId, data.settings);
+  }
+  
+  const savedSettings = userSettings.get(data.clientId);
+  if (savedSettings) {
+    userColor = savedSettings.lineColor;
+    userGlow = savedSettings.glowIntensity;
+  } else {
+    userColor = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`;
+    userGlow = settings.glowIntensity;
+  }
+  
+  // Draw face mesh using the received landmarks and user settings
+  remoteCtx.lineWidth = settings.lineWidth;
+  remoteCtx.strokeStyle = userColor;
+  remoteCtx.shadowColor = userColor;
+  remoteCtx.shadowBlur = userGlow;
+  
+  // Draw face outline
+  drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
+
+  // Draw facial features with user's settings
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEyebrow, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userColor, settings.lineWidth, remoteCtx);
+  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userColor, settings.lineWidth, remoteCtx);
+}
+
+function updateRemoteDrawing(data) {
+  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
+  if (!remoteCanvas) return;
+  
+  userDrawings.set(data.clientId, data.drawingData);
+  const remoteCtx = remoteCanvas.getContext('2d');
+  
+  // Only draw if we have face bounds
+  if (data.faceBounds) {
+    remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
+    remoteCtx.save();
+    
+    // Transform drawing to match received face bounds
+    remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
+    remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
+    
+    const img = new Image();
+    img.onload = () => {
+      remoteCtx.drawImage(img, 0, 0, 1, 1);
+      remoteCtx.restore();
+    };
+    img.src = data.drawingData;
+  }
+}
+
 // Modified drawing state
 let isDrawing = false;
 let drawingEnabled = true; // Always enabled now
@@ -215,187 +396,7 @@ function draw(e) {
   [lastX, lastY] = [x, y];
 }
 
-function setupMultiplayer() {
-  const playerList = document.getElementById('playerList');
-  
-  // Update player list when peers change
-  room.party.subscribe((peers) => {
-    playerList.innerHTML = '';
-    for (const clientId in peers) {
-      const { avatarUrl, username } = peers[clientId];
-      
-      // Update last activity timestamp for new peers
-      if (!lastActivityMap.has(clientId)) {
-        lastActivityMap.set(clientId, Date.now());
-      }
-      
-      const playerItem = document.createElement('div');
-      playerItem.className = 'player-item';
-      playerItem.innerHTML = `
-        <img class="player-avatar" src="${avatarUrl}" alt="${username}">
-        <span>${username}</span>
-      `;
-      
-      // Add a canvas for this player's face mesh
-      const playerCanvas = document.createElement('canvas');
-      playerCanvas.className = 'remote-face-mesh';
-      playerCanvas.id = `face-mesh-${clientId}`;
-      playerCanvas.width = window.innerWidth;
-      playerCanvas.height = window.innerHeight;
-      document.querySelector('.container').appendChild(playerCanvas);
-      
-      playerList.appendChild(playerItem);
-    }
-  });
-
-  // Store other users' settings
-  const userSettings = new Map();
-  const userDrawings = new Map(); // Store drawings for each user
-
-  function updateOtherUserSettings(data) {
-    userSettings.set(data.clientId, data.settings);
-  }
-
-  function updateRemoteDrawing(data) {
-    const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
-    if (!remoteCanvas) return;
-    
-    userDrawings.set(data.clientId, data.drawingData);
-    const remoteCtx = remoteCanvas.getContext('2d');
-    
-    // Only draw if we have face bounds
-    if (data.faceBounds) {
-      remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
-      remoteCtx.save();
-      
-      // Transform drawing to match received face bounds
-      remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
-      remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
-      
-      const img = new Image();
-      img.onload = () => {
-        remoteCtx.drawImage(img, 0, 0, 1, 1);
-        remoteCtx.restore();
-      };
-      img.src = data.drawingData;
-    }
-  }
-
-  // Update message handler to include drawing updates
-  room.onmessage = (event) => {
-    const data = event.data;
-    switch (data.type) {
-      case 'disconnected':
-        cleanupUser(data.clientId);
-        break;
-      case 'faceMeshUpdate':
-        if (data.clientId !== room.party.client.id) {
-          updateRemoteFaceMesh(data);
-          // Update last activity timestamp
-          lastActivityMap.set(data.clientId, Date.now());
-        }
-        break;
-      case 'userSettings':
-        updateOtherUserSettings(data);
-        break;
-      case 'drawingUpdate':
-        if (data.clientId !== room.party.client.id) {
-          updateRemoteDrawing(data);
-          // Update last activity timestamp
-          lastActivityMap.set(data.clientId, Date.now());
-        }
-        break;
-      case 'transcription':
-        if (data.clientId !== room.party.client.id) {
-          addMessageToLog(data.username, data.text);
-          playTTS(data.text);
-          // Update last activity timestamp
-          lastActivityMap.set(data.clientId, Date.now());
-        }
-        break;
-    }
-  };
-
-  // Start the inactivity checker
-  startInactivityChecker();
-
-  // Send initial settings when joining
-  room.send({
-    type: 'userSettings',
-    clientId: room.party.client.id,
-    settings: {
-      lineColor: settings.lineColor,
-      glowIntensity: settings.glowIntensity
-    }
-  });
-
-  // Send settings updates when they change
-  lineColorInput.addEventListener('change', () => {
-    room.send({
-      type: 'userSettings',
-      clientId: room.party.client.id,
-      settings: {
-        lineColor: settings.lineColor,
-        glowIntensity: settings.glowIntensity
-      }
-    });
-  });
-
-  glowIntensityInput.addEventListener('change', () => {
-    room.send({
-      type: 'userSettings',
-      clientId: room.party.client.id,
-      settings: {
-        lineColor: settings.lineColor,
-        glowIntensity: settings.glowIntensity
-      }
-    });
-  });
-
-  setupVoiceChat();
-}
-
-function updateRemoteFaceMesh(data) {
-  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
-  if (!remoteCanvas) return;
-  
-  const remoteCtx = remoteCanvas.getContext('2d');
-  remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
-  
-  // Use received settings if available, otherwise generate from client ID
-  let userColor, userGlow;
-  if (data.settings) {
-    userSettings.set(data.clientId, data.settings);
-  }
-  
-  const savedSettings = userSettings.get(data.clientId);
-  if (savedSettings) {
-    userColor = savedSettings.lineColor;
-    userGlow = savedSettings.glowIntensity;
-  } else {
-    userColor = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`;
-    userGlow = settings.glowIntensity;
-  }
-  
-  // Draw face mesh using the received landmarks and user settings
-  remoteCtx.lineWidth = settings.lineWidth;
-  remoteCtx.strokeStyle = userColor;
-  remoteCtx.shadowColor = userColor;
-  remoteCtx.shadowBlur = userGlow;
-  
-  // Draw face outline
-  drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
-
-  // Draw facial features with user's settings
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEyebrow, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userColor, settings.lineWidth, remoteCtx);
-  drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userColor, settings.lineWidth, remoteCtx);
-}
-
+// Helper function to get face bounds from landmarks
 function getFaceBounds(landmarks) {
   let minX = Infinity, minY = Infinity;
   let maxX = -Infinity, maxY = -Infinity;
@@ -705,7 +706,24 @@ function populateVoiceSelect() {
 }
 
 // Call immediately in case voices are already loaded
-populateVoiceSelect();
+async function loadVoices() {
+  return new Promise(resolve => {
+    if (synth.getVoices().length > 0) {
+      resolve();
+    } else {
+      const intervalId = setInterval(() => {
+        if (synth.getVoices().length > 0) {
+          clearInterval(intervalId);
+          resolve();
+        }
+      }, 100);
+    }
+  });
+}
+
+loadVoices().then(() => {
+  populateVoiceSelect();
+});
 
 // Also listen for voices changed event
 synth.addEventListener('voiceschanged', populateVoiceSelect);
@@ -765,7 +783,7 @@ function processQueue() {
   utterance.volume = 1.0;
   
   utterance.onerror = (event) => {
-    console.error('TTS Error:', event);
+    console.error('TTS! Error:', event);
     isSpeaking = false;
     processQueue(); // Continue with next item in queue
   };
