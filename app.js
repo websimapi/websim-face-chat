@@ -5,6 +5,16 @@ let settings = {
   glowIntensity: 10
 };
 
+// State variables
+let allowDrawing = true;
+const remoteDrawings = new Map(); // Store remote drawings per user
+let isDrawing = false;
+let drawingEnabled = true; // Always enabled now
+let lastX = 0;
+let lastY = 0;
+let drawingBounds = { left: 0, top: 0, width: 0, height: 0 }; // Track face bounds for drawing
+let currentTranscript = ''; // Add this at the top with other state variables
+
 // DOM Elements
 const videoElement = document.getElementById('input');
 const canvasElement = document.getElementById('output');
@@ -32,6 +42,7 @@ const glowIntensityInput = document.getElementById('glowIntensity');
 const glowIntensityValue = document.getElementById('glowIntensityValue');
 const backgroundPromptInput = document.getElementById('backgroundPrompt');
 const startButton = document.getElementById('startButton');
+const allowDrawingInput = document.getElementById('allowDrawing');
 
 let room = null;
 
@@ -51,6 +62,17 @@ lineWidthInput.addEventListener('input', (e) => {
 glowIntensityInput.addEventListener('input', (e) => {
   settings.glowIntensity = e.target.value;
   glowIntensityValue.textContent = e.target.value;
+});
+allowDrawingInput.addEventListener('change', (e) => {
+  allowDrawing = e.target.checked;
+  // Broadcast drawing permission change
+  if (room) {
+    room.send({
+      type: 'drawingPermission',
+      clientId: room.party.client.id,
+      allowDrawing: allowDrawing
+    });
+  }
 });
 
 let imageCounter = 0;
@@ -141,8 +163,6 @@ function setupMultiplayer() {
       case 'drawingUpdate':
         if (data.clientId !== room.party.client.id) {
           updateRemoteDrawing(data);
-          // Update last activity timestamp
-          lastActivityMap.set(data.clientId, Date.now());
         }
         break;
       case 'transcription':
@@ -152,6 +172,9 @@ function setupMultiplayer() {
           // Update last activity timestamp
           lastActivityMap.set(data.clientId, Date.now());
         }
+        break;
+      case 'drawingPermission':
+        updateDrawingPermissions(data);
         break;
     }
   };
@@ -245,10 +268,22 @@ function updateRemoteFaceMesh(data) {
 }
 
 function updateRemoteDrawing(data) {
-  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
-  if (!remoteCanvas) return;
+  // Only update if we're the target or if it's a broadcast
+  if (data.targetClientId !== room.party.client.id && data.targetClientId !== 'broadcast') {
+    return;
+  }
   
-  userDrawings.set(data.clientId, data.drawingData);
+  let remoteCanvas = document.getElementById(`remote-drawing-${data.clientId}`);
+  if (!remoteCanvas) {
+    remoteCanvas = document.createElement('canvas');
+    remoteCanvas.id = `remote-drawing-${data.clientId}`;
+    remoteCanvas.className = 'remote-drawing';
+    remoteCanvas.width = window.innerWidth;
+    remoteCanvas.height = window.innerHeight;
+    document.querySelector('.container').appendChild(remoteCanvas);
+    remoteDrawings.set(data.clientId, remoteCanvas);
+  }
+  
   const remoteCtx = remoteCanvas.getContext('2d');
   
   // Only draw if we have face bounds
@@ -256,7 +291,6 @@ function updateRemoteDrawing(data) {
     remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
     remoteCtx.save();
     
-    // Transform drawing to match received face bounds
     remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
     remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
     
@@ -269,13 +303,21 @@ function updateRemoteDrawing(data) {
   }
 }
 
-// Modified drawing state
-let isDrawing = false;
-let drawingEnabled = true; // Always enabled now
-let lastX = 0;
-let lastY = 0;
-let drawingBounds = { left: 0, top: 0, width: 0, height: 0 }; // Track face bounds for drawing
-let currentTranscript = ''; // Add this at the top with other state variables
+function updateDrawingPermissions(data) {
+  if (data.clientId in room.party.peers) {
+    room.party.peers[data.clientId].allowDrawing = data.allowDrawing;
+    
+    // Update visual feedback
+    const peerCanvas = document.getElementById(`face-mesh-${data.clientId}`);
+    if (peerCanvas) {
+      if (data.allowDrawing) {
+        peerCanvas.classList.remove('drawing-disabled');
+      } else {
+        peerCanvas.classList.add('drawing-disabled');
+      }
+    }
+  }
+}
 
 // Create drawing buffer canvas
 const drawingBuffer = document.createElement('canvas');
@@ -327,9 +369,19 @@ function stopDrawing() {
 
 function startDrawing(e) {
   if (!drawingEnabled) return;
+  
+  // Check if we're trying to draw on someone else's face
+  const targetClientId = e.target.getAttribute('data-client-id');
+  if (targetClientId && targetClientId !== room.party.client.id) {
+    // Check if we have permission
+    const peer = room.party.peers[targetClientId];
+    if (!peer || !peer.allowDrawing) {
+      return; // Drawing not allowed on this face
+    }
+  }
+  
   isDrawing = true;
   const rect = drawingCanvas.getBoundingClientRect();
-  // Adjust for mirroring
   lastX = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
   lastY = (e.clientY || e.touches[0].clientY) - rect.top;
 }
@@ -343,7 +395,8 @@ function clearDrawing() {
       type: 'drawingUpdate',
       clientId: room.party.client.id,
       drawingData: drawingBuffer.toDataURL(),
-      faceBounds: drawingBounds
+      faceBounds: drawingBounds,
+      targetClientId: room.party.client.id
     });
   }
 }
@@ -353,10 +406,7 @@ function draw(e) {
   
   e.preventDefault();
   
-  // Convert mouse/touch coordinates to relative position within face bounds
   const rect = drawingCanvas.getBoundingClientRect();
-  
-  // Adjust for mirroring by inverting the x coordinate
   const x = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
   const y = (e.clientY || e.touches[0].clientY) - rect.top;
   
@@ -389,7 +439,8 @@ function draw(e) {
       type: 'drawingUpdate',
       clientId: room.party.client.id,
       drawingData: drawingBuffer.toDataURL(),
-      faceBounds: drawingBounds
+      faceBounds: drawingBounds,
+      targetClientId: drawingCanvas.getAttribute('data-client-id') || room.party.client.id
     });
   }
   
@@ -473,7 +524,8 @@ function onResults(results) {
             lineColor: settings.lineColor,
             glowIntensity: settings.glowIntensity
           },
-          faceBounds: drawingBounds
+          faceBounds: drawingBounds,
+          allowDrawing: allowDrawing
         });
       }
     }
@@ -893,6 +945,13 @@ function cleanupUser(clientId) {
   if (disconnectedCanvas) {
     disconnectedCanvas.remove();
   }
+  
+  // Remove remote drawing canvas
+  const remoteDrawingCanvas = document.getElementById(`remote-drawing-${clientId}`);
+  if (remoteDrawingCanvas) {
+    remoteDrawingCanvas.remove();
+  }
+  remoteDrawings.delete(clientId);
   
   // Remove from activity tracking
   lastActivityMap.delete(clientId);
