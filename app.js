@@ -91,9 +91,20 @@ startButton.addEventListener('click', async () => {
 function setupMultiplayer() {
   const playerList = document.getElementById('playerList');
   
-  // Update player list when peers change
+  // Create container for current user
+  createPlayerContainer(room.party.client.id, room.party.client.username);
+  
+  // Update player list and containers when peers change
   room.party.subscribe((peers) => {
     playerList.innerHTML = '';
+    
+    // Clean up old containers
+    document.querySelectorAll('.player-container').forEach(container => {
+      if (!peers[container.dataset.clientId]) {
+        container.remove();
+      }
+    });
+    
     for (const clientId in peers) {
       const { avatarUrl, username } = peers[clientId];
       
@@ -102,22 +113,17 @@ function setupMultiplayer() {
         lastActivityMap.set(clientId, Date.now());
       }
       
+      // Create player list item
       const playerItem = document.createElement('div');
       playerItem.className = 'player-item';
       playerItem.innerHTML = `
         <img class="player-avatar" src="${avatarUrl}" alt="${username}">
         <span>${username}</span>
       `;
-      
-      // Add a canvas for this player's face mesh
-      const playerCanvas = document.createElement('canvas');
-      playerCanvas.className = 'remote-face-mesh';
-      playerCanvas.id = `face-mesh-${clientId}`;
-      playerCanvas.width = window.innerWidth;
-      playerCanvas.height = window.innerHeight;
-      document.querySelector('.container').appendChild(playerCanvas);
-      
       playerList.appendChild(playerItem);
+      
+      // Create or update player container
+      createPlayerContainer(clientId, username);
     }
   });
 
@@ -348,10 +354,13 @@ function stopDrawing() {
 function startDrawing(e) {
   if (!drawingEnabled) return;
   isDrawing = true;
-  const rect = drawingCanvas.getBoundingClientRect();
-  // Adjust for mirroring
-  lastX = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
-  lastY = (e.clientY || e.touches[0].clientY) - rect.top;
+  
+  const container = e.target.closest('.player-container');
+  const rect = container.getBoundingClientRect();
+  
+  // Convert to relative coordinates
+  lastX = ((e.clientX || e.touches[0].clientX) - rect.left) / rect.width;
+  lastY = ((e.clientY || e.touches[0].clientY) - rect.top) / rect.height;
 }
 
 function clearDrawing() {
@@ -373,47 +382,106 @@ function draw(e) {
   
   e.preventDefault();
   
-  // Convert mouse/touch coordinates to relative position within face bounds
-  const rect = drawingCanvas.getBoundingClientRect();
+  const container = e.target.closest('.player-container');
+  const rect = container.getBoundingClientRect();
   
-  // Adjust for mirroring by inverting the x coordinate
-  const x = rect.width - ((e.clientX || e.touches[0].clientX) - rect.left);
-  const y = (e.clientY || e.touches[0].clientY) - rect.top;
+  // Convert to relative coordinates
+  const x = ((e.clientX || e.touches[0].clientX) - rect.left) / rect.width;
+  const y = ((e.clientY || e.touches[0].clientY) - rect.top) / rect.height;
   
-  // Convert to relative coordinates (0-1 range)
-  const relativeX = (x - drawingBounds.left) / drawingBounds.width;
-  const relativeY = (y - drawingBounds.top) / drawingBounds.height;
-  
-  const lastRelativeX = (lastX - drawingBounds.left) / drawingBounds.width;
-  const lastRelativeY = (lastY - drawingBounds.top) / drawingBounds.height;
-  
-  // Draw in buffer (normalized 0-1 space)
+  // Draw in buffer
   bufferCtx.beginPath();
-  bufferCtx.moveTo(lastRelativeX * 1000, lastRelativeY * 1000);
-  bufferCtx.lineTo(relativeX * 1000, relativeY * 1000);
+  bufferCtx.moveTo(lastX * 1000, lastY * 1000);
+  bufferCtx.lineTo(x * 1000, y * 1000);
   bufferCtx.strokeStyle = drawingSettings.color;
   bufferCtx.lineWidth = drawingSettings.width * 2;
   bufferCtx.stroke();
   
   // Draw on screen
+  const drawingCtx = document.getElementById(`face-mesh-${room.party.client.id}`).getContext('2d');
   drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
   drawingCtx.save();
-  drawingCtx.translate(drawingBounds.left, drawingBounds.top);
-  drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+  drawingCtx.scale(rect.width, rect.height);
   drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
   drawingCtx.restore();
   
-  // Broadcast drawing update
-  if (room) {
-    room.send({
-      type: 'drawingUpdate',
-      clientId: room.party.client.id,
-      drawingData: drawingBuffer.toDataURL(),
-      faceBounds: drawingBounds
-    });
+  // Send drawing update less frequently
+  if (!draw.throttled) {
+    draw.throttled = true;
+    setTimeout(() => {
+      room.send({
+        type: 'drawingUpdate',
+        clientId: room.party.client.id,
+        drawingData: drawingBuffer.toDataURL(),
+        timestamp: Date.now()
+      });
+      draw.throttled = false;
+    }, 50); // Throttle to 20fps
   }
   
   [lastX, lastY] = [x, y];
+}
+
+function createPlayerContainer(clientId, username) {
+  let container = document.querySelector(`.player-container[data-client-id="${clientId}"]`);
+  
+  if (!container) {
+    container = document.createElement('div');
+    container.className = 'player-container';
+    container.dataset.clientId = clientId;
+    
+    // Add merge button if not current user
+    if (clientId !== room.party.client.id) {
+      const mergeButton = document.createElement('button');
+      mergeButton.className = 'merge-button';
+      mergeButton.textContent = 'Join View';
+      mergeButton.onclick = () => mergeWithUser(clientId);
+      container.appendChild(mergeButton);
+    }
+    
+    // Create canvas for face mesh
+    const canvas = document.createElement('canvas');
+    canvas.className = 'remote-face-mesh';
+    canvas.id = `face-mesh-${clientId}`;
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    container.appendChild(canvas);
+    
+    document.querySelector('.container').appendChild(container);
+  }
+  
+  return container;
+}
+
+function mergeWithUser(targetId) {
+  const targetContainer = document.querySelector(`.player-container[data-client-id="${targetId}"]`);
+  const currentContainer = document.querySelector(`.player-container[data-client-id="${room.party.client.id}"]`);
+  
+  if (targetContainer.classList.contains('merged')) {
+    // Unmerge
+    document.querySelectorAll('.player-container').forEach(container => {
+      container.classList.remove('merged');
+    });
+  } else {
+    // Merge
+    targetContainer.classList.add('merged');
+    currentContainer.classList.add('merged');
+  }
+}
+
+function updateRemoteDrawing(data) {
+  const canvas = document.getElementById(`face-mesh-${data.clientId}`);
+  if (!canvas) return;
+  
+  const ctx = canvas.getContext('2d');
+  const img = new Image();
+  
+  img.onload = () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  };
+  
+  img.src = data.drawingData;
 }
 
 // Helper function to get face bounds from landmarks
@@ -625,7 +693,7 @@ faceMesh.setOptions({
   minTrackingConfidence: 0.5
 });
 
-faceMesh.onResults(onResults);
+faceMesh.onResults = onResults;
 
 const camera = new Camera(videoElement, {
   onFrame: async () => {
