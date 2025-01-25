@@ -36,36 +36,24 @@ const startButton = document.getElementById('startButton');
 let room = null;
 
 // Constants for inactivity handling
-const INACTIVITY_TIMEOUT = 60000; // Increase to 60 seconds
-const CLEANUP_INTERVAL = 10000; // Check every 10 seconds
-const ACTIVITY_THRESHOLD = 5000; // Minimum time between activity updates
+const INACTIVITY_TIMEOUT = 30000; // 30 seconds in milliseconds
+const CLEANUP_INTERVAL = 5000; // Check every 5 seconds
 
-// Map to store last activity timestamps and activity debounce timers
+// Map to store last activity timestamps
 const lastActivityMap = new Map();
-const activityDebounceTimers = new Map();
 
-function updateActivity(clientId) {
-  const now = Date.now();
-  const lastUpdate = lastActivityMap.get(clientId) || 0;
-  
-  // Only update activity if enough time has passed since last update
-  if (now - lastUpdate > ACTIVITY_THRESHOLD) {
-    // Clear any existing debounce timer
-    if (activityDebounceTimers.has(clientId)) {
-      clearTimeout(activityDebounceTimers.get(clientId));
-    }
-    
-    // Set new activity timestamp
-    lastActivityMap.set(clientId, now);
-    
-    // Set new debounce timer
-    const timer = setTimeout(() => {
-      activityDebounceTimers.delete(clientId);
-    }, ACTIVITY_THRESHOLD);
-    
-    activityDebounceTimers.set(clientId, timer);
-  }
-}
+// Settings event listeners
+lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
+lineWidthInput.addEventListener('input', (e) => {
+  settings.lineWidth = e.target.value;
+  lineWidthValue.textContent = e.target.value;
+});
+glowIntensityInput.addEventListener('input', (e) => {
+  settings.glowIntensity = e.target.value;
+  glowIntensityValue.textContent = e.target.value;
+});
+
+let imageCounter = 0;
 
 function loadBackgroundImage(prompt) {
   // Remove any existing background images
@@ -73,7 +61,7 @@ function loadBackgroundImage(prompt) {
 
   // Create new unique image element
   const backgroundImg = document.createElement('img');
-  const uniqueId = `background-image-${Math.floor(Math.random() * 1000000)}`;
+  const uniqueId = `background-image-${imageCounter++}`;
   backgroundImg.id = uniqueId;
   backgroundImg.alt = prompt;
   backgroundImg.src = `https://source.unsplash.com/1920x1080/?${encodeURIComponent(prompt)}`;
@@ -142,8 +130,9 @@ function setupMultiplayer() {
         break;
       case 'faceMeshUpdate':
         if (data.clientId !== room.party.client.id) {
-          updateActivity(data.clientId); // Update activity timestamp
           updateRemoteFaceMesh(data);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
         }
         break;
       case 'userSettings':
@@ -151,15 +140,17 @@ function setupMultiplayer() {
         break;
       case 'drawingUpdate':
         if (data.clientId !== room.party.client.id) {
-          updateActivity(data.clientId); // Update activity timestamp
           updateRemoteDrawing(data);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
         }
         break;
       case 'transcription':
         if (data.clientId !== room.party.client.id) {
-          updateActivity(data.clientId); // Update activity timestamp
           addMessageToLog(data.username, data.text);
           playTTS(data.text);
+          // Update last activity timestamp
+          lastActivityMap.set(data.clientId, Date.now());
         }
         break;
     }
@@ -216,34 +207,40 @@ function updateRemoteFaceMesh(data) {
   const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
   if (!remoteCanvas) return;
   
+  // Update canvas dimensions if needed
+  if (remoteCanvas.width !== window.innerWidth || remoteCanvas.height !== window.innerHeight) {
+    remoteCanvas.width = window.innerWidth;
+    remoteCanvas.height = window.innerHeight;
+  }
+  
   const remoteCtx = remoteCanvas.getContext('2d');
   remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
   
-  // Use received settings if available, otherwise generate from client ID
+  // Use received settings if available
   let userColor, userGlow;
   if (data.settings) {
     userSettings.set(data.clientId, data.settings);
-  }
-  
-  const savedSettings = userSettings.get(data.clientId);
-  if (savedSettings) {
-    userColor = savedSettings.lineColor;
-    userGlow = savedSettings.glowIntensity;
+    userColor = data.settings.lineColor;
+    userGlow = data.settings.glowIntensity;
   } else {
-    userColor = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`;
-    userGlow = settings.glowIntensity;
+    const savedSettings = userSettings.get(data.clientId);
+    if (savedSettings) {
+      userColor = savedSettings.lineColor;
+      userGlow = savedSettings.glowIntensity;
+    } else {
+      userColor = `hsla(${(parseInt(data.clientId, 36) % 360)}, 100%, 50%, 0.5)`;
+      userGlow = settings.glowIntensity;
+    }
   }
   
-  // Draw face mesh using the received landmarks and user settings
+  // Draw face mesh
   remoteCtx.lineWidth = settings.lineWidth;
   remoteCtx.strokeStyle = userColor;
   remoteCtx.shadowColor = userColor;
   remoteCtx.shadowBlur = userGlow;
   
-  // Draw face outline
+  // Draw face outline and features
   drawConnectors(data.landmarks, FACEMESH_FACE_OVAL, userColor, settings.lineWidth, remoteCtx);
-
-  // Draw facial features with user's settings
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEye, userColor, settings.lineWidth, remoteCtx);
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.rightEye, userColor, settings.lineWidth, remoteCtx);
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.leftEyebrow, userColor, settings.lineWidth, remoteCtx);
@@ -251,31 +248,45 @@ function updateRemoteFaceMesh(data) {
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.nose, userColor, settings.lineWidth, remoteCtx);
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsOuter, userColor, settings.lineWidth, remoteCtx);
   drawFacialFeature(data.landmarks, FACE_CONNECTIONS.lipsInner, userColor, settings.lineWidth, remoteCtx);
-}
 
-function updateRemoteDrawing(data) {
-  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
-  if (!remoteCanvas) return;
-  
-  userDrawings.set(data.clientId, data.drawingData);
-  const remoteCtx = remoteCanvas.getContext('2d');
-  
-  // Only draw if we have face bounds
-  if (data.faceBounds) {
-    remoteCtx.clearRect(0, 0, remoteCanvas.width, remoteCanvas.height);
-    remoteCtx.save();
-    
-    // Transform drawing to match received face bounds
-    remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
-    remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
-    
+  // If there's a stored drawing for this user, render it
+  const userDrawing = userDrawings.get(data.clientId);
+  if (userDrawing && data.faceBounds) {
     const img = new Image();
     img.onload = () => {
+      remoteCtx.save();
+      remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
+      remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
       remoteCtx.drawImage(img, 0, 0, 1, 1);
       remoteCtx.restore();
     };
-    img.src = data.drawingData;
+    img.src = userDrawing;
   }
+}
+
+function updateRemoteDrawing(data) {
+  // Store the drawing data for this user
+  userDrawings.set(data.clientId, data.drawingData);
+  
+  // Get the canvas for this user
+  const remoteCanvas = document.getElementById(`face-mesh-${data.clientId}`);
+  if (!remoteCanvas) return;
+  
+  const remoteCtx = remoteCanvas.getContext('2d');
+  
+  // Create a new image to draw
+  const img = new Image();
+  img.onload = () => {
+    // Only draw if we have face bounds
+    if (data.faceBounds) {
+      remoteCtx.save();
+      remoteCtx.translate(data.faceBounds.left, data.faceBounds.top);
+      remoteCtx.scale(data.faceBounds.width, data.faceBounds.height);
+      remoteCtx.drawImage(img, 0, 0, 1, 1);
+      remoteCtx.restore();
+    }
+  };
+  img.src = data.drawingData;
 }
 
 // Modified drawing state
@@ -405,67 +416,7 @@ function draw(e) {
   [lastX, lastY] = [x, y];
 }
 
-function onResults(results) {
-  // Update current user's activity timestamp
-  if (room && room.party.client.id) {
-    updateActivity(room.party.client.id);
-  }
-  
-  canvasCtx.save();
-  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-
-  if (results.multiFaceLandmarks) {
-    for (const landmarks of results.multiFaceLandmarks) {
-      const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
-      previousLandmarks = smoothedLandmarks;
-
-      // Update drawing bounds based on face position
-      drawingBounds = getFaceBounds(smoothedLandmarks);
-      
-      // Update drawing position based on face bounds
-      drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
-      drawingCtx.save();
-      drawingCtx.translate(drawingBounds.left, drawingBounds.top);
-      drawingCtx.scale(drawingBounds.width, drawingBounds.height);
-      drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
-      drawingCtx.restore();
-
-      canvasCtx.lineWidth = settings.lineWidth;
-      canvasCtx.strokeStyle = settings.lineColor;
-      canvasCtx.shadowColor = settings.lineColor;
-      canvasCtx.shadowBlur = settings.glowIntensity;
-      
-      // Draw face outline
-      drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth, canvasCtx);
-
-      // Draw facial features
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth, canvasCtx);
-      drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth, canvasCtx);
-
-      // Sync face mesh data in multiplayer mode
-      if (room) {
-        room.send({
-          type: 'faceMeshUpdate',
-          landmarks: smoothedLandmarks,
-          clientId: room.party.client.id,
-          username: room.party.client.username,
-          settings: {
-            lineColor: settings.lineColor,
-            glowIntensity: settings.glowIntensity
-          },
-          faceBounds: drawingBounds
-        });
-      }
-    }
-  }
-  canvasCtx.restore();
-}
-
+// Helper function to get face bounds from landmarks
 function getFaceBounds(landmarks) {
   let minX = Infinity, minY = Infinity;
   let maxX = -Infinity, maxY = -Infinity;
@@ -489,48 +440,66 @@ function getFaceBounds(landmarks) {
   };
 }
 
-function smoothLandmarks(currentLandmarks, previousLandmarks) {
-  if (!previousLandmarks) return currentLandmarks;
+function onResults(results) {
+  // Update current user's activity timestamp
+  if (room && room.party.client.id) {
+    lastActivityMap.set(room.party.client.id, Date.now());
+  }
   
-  return currentLandmarks.map((landmark, i) => ({
-    x: previousLandmarks[i].x + (landmark.x - previousLandmarks[i].x) * 0.5,
-    y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * 0.5,
-    z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * 0.5
-  }));
-}
+  canvasCtx.save();
+  canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-function drawConnectors(landmarks, connections, color, width, ctx = canvasCtx) {
-  ctx.lineWidth = width;
-  ctx.strokeStyle = color;
-  
-  connections.forEach(([i, j]) => {
-    const start = landmarks[i];
-    const end = landmarks[j];
+  if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+    const landmarks = results.multiFaceLandmarks[0];
+    const smoothedLandmarks = smoothLandmarks(landmarks, previousLandmarks);
+    previousLandmarks = smoothedLandmarks;
+
+    // Update drawing bounds based on face position
+    drawingBounds = getFaceBounds(smoothedLandmarks);
     
-    ctx.beginPath();
-    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-    ctx.stroke();
-  });
-}
+    // Update drawing position based on face bounds
+    drawingCtx.clearRect(0, 0, drawingCanvas.width, drawingCanvas.height);
+    drawingCtx.save();
+    drawingCtx.translate(drawingBounds.left, drawingBounds.top);
+    drawingCtx.scale(drawingBounds.width, drawingBounds.height);
+    drawingCtx.drawImage(drawingBuffer, 0, 0, 1000, 1000, 0, 0, 1, 1);
+    drawingCtx.restore();
 
-function drawFacialFeature(landmarks, connections, color, width, ctx = canvasCtx) {
-  ctx.lineWidth = width;
-  ctx.strokeStyle = color;
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 5;
-  
-  connections.forEach(([i, j]) => {
-    const start = landmarks[i];
-    const end = landmarks[j];
+    canvasCtx.lineWidth = settings.lineWidth;
+    canvasCtx.strokeStyle = settings.lineColor;
+    canvasCtx.shadowColor = settings.lineColor;
+    canvasCtx.shadowBlur = settings.glowIntensity;
     
-    ctx.beginPath();
-    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
-    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
-    ctx.stroke();
-  });
+    // Draw face features
+    drawConnectors(smoothedLandmarks, FACEMESH_FACE_OVAL, settings.lineColor, settings.lineWidth, canvasCtx);
+    drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEye, settings.lineColor, settings.lineWidth, canvasCtx);
+    drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEye, settings.lineColor, settings.lineWidth, canvasCtx);
+    drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.leftEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
+    drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.rightEyebrow, settings.lineColor, settings.lineWidth, canvasCtx);
+    drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.nose, settings.lineColor, settings.lineWidth, canvasCtx);
+    drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsOuter, settings.lineColor, settings.lineWidth, canvasCtx);
+    drawFacialFeature(smoothedLandmarks, FACE_CONNECTIONS.lipsInner, settings.lineColor, settings.lineWidth, canvasCtx);
+
+    // Sync face mesh and drawing data
+    if (room) {
+      room.send({
+        type: 'faceMeshUpdate',
+        landmarks: smoothedLandmarks,
+        clientId: room.party.client.id,
+        username: room.party.client.username,
+        settings: {
+          lineColor: settings.lineColor,
+          glowIntensity: settings.glowIntensity
+        },
+        faceBounds: drawingBounds,
+        drawingData: drawingBuffer.toDataURL()
+      });
+    }
+  }
+  canvasCtx.restore();
 }
 
+// Facial feature connections
 const FACE_CONNECTIONS = {
   leftEye: [
     [263, 249], [249, 390], [390, 373], [373, 374], [374, 380], 
@@ -566,6 +535,7 @@ const FACE_CONNECTIONS = {
   ]
 };
 
+// Face contours for the main outline
 const FACEMESH_FACE_OVAL = [
   [10, 338], [338, 297], [297, 332], [332, 284], [284, 251], [251, 389],
   [389, 356], [356, 454], [454, 323], [323, 361], [361, 288], [288, 397],
@@ -576,7 +546,9 @@ const FACEMESH_FACE_OVAL = [
 ];
 
 let previousLandmarks = null;
+const smoothingFactor = 0.5;
 
+// Update how drawing canvas is initialized
 function onResize() {
   canvasElement.width = window.innerWidth;
   canvasElement.height = window.innerHeight;
@@ -597,6 +569,48 @@ function onResize() {
 
 window.addEventListener('resize', onResize);
 onResize();
+
+function smoothLandmarks(currentLandmarks, previousLandmarks) {
+  if (!previousLandmarks) return currentLandmarks;
+  
+  return currentLandmarks.map((landmark, i) => ({
+    x: previousLandmarks[i].x + (landmark.x - previousLandmarks[i].x) * smoothingFactor,
+    y: previousLandmarks[i].y + (landmark.y - previousLandmarks[i].y) * smoothingFactor,
+    z: previousLandmarks[i].z + (landmark.z - previousLandmarks[i].z) * smoothingFactor
+  }));
+}
+
+function drawConnectors(landmarks, connections, color, width, ctx = canvasCtx) {
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  
+  connections.forEach(([i, j]) => {
+    const start = landmarks[i];
+    const end = landmarks[j];
+    
+    ctx.beginPath();
+    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+    ctx.stroke();
+  });
+}
+
+function drawFacialFeature(landmarks, connections, color, width, ctx = canvasCtx) {
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 5;
+  
+  connections.forEach(([i, j]) => {
+    const start = landmarks[i];
+    const end = landmarks[j];
+    
+    ctx.beginPath();
+    ctx.moveTo(start.x * canvasElement.width, start.y * canvasElement.height);
+    ctx.lineTo(end.x * canvasElement.width, end.y * canvasElement.height);
+    ctx.stroke();
+  });
+}
 
 const faceMesh = new FaceMesh({
   locateFile: (file) => {
@@ -732,6 +746,7 @@ loadVoices().then(() => {
 // Also listen for voices changed event
 synth.addEventListener('voiceschanged', populateVoiceSelect);
 
+// Update voice selection in playTTS function
 let speechQueue = [];
 let isSpeaking = false;
 
@@ -908,45 +923,20 @@ function addMessageToLog(username, text) {
 }
 
 function cleanupUser(clientId) {
-  // Don't clean up if user still exists in peers list
-  if (room && room.party.peers[clientId]) {
-    const lastActivity = lastActivityMap.get(clientId) || 0;
-    const now = Date.now();
-    
-    // Only clean up if user has been inactive for longer than timeout
-    if (now - lastActivity > INACTIVITY_TIMEOUT) {
-      // Remove the user's face mesh canvas
-      const disconnectedCanvas = document.getElementById(`face-mesh-${clientId}`);
-      if (disconnectedCanvas) {
-        disconnectedCanvas.remove();
-      }
-      
-      // Remove from activity tracking
-      lastActivityMap.delete(clientId);
-      activityDebounceTimers.delete(clientId);
-      
-      // Remove from user settings
-      userSettings.delete(clientId);
-      
-      // Remove from user drawings
-      userDrawings.delete(clientId);
-      
-      // Add system message to chat
-      const username = room.party.peers[clientId]?.username || 'User';
-      addMessageToLog('System', `${username} removed due to inactivity`);
-    }
-  } else {
-    // User has actually disconnected, clean up immediately
-    const disconnectedCanvas = document.getElementById(`face-mesh-${clientId}`);
-    if (disconnectedCanvas) {
-      disconnectedCanvas.remove();
-    }
-    
-    lastActivityMap.delete(clientId);
-    activityDebounceTimers.delete(clientId);
-    userSettings.delete(clientId);
-    userDrawings.delete(clientId);
+  // Remove the user's face mesh canvas
+  const disconnectedCanvas = document.getElementById(`face-mesh-${clientId}`);
+  if (disconnectedCanvas) {
+    disconnectedCanvas.remove();
   }
+  
+  // Remove from activity tracking
+  lastActivityMap.delete(clientId);
+  
+  // Remove from user settings
+  userSettings.delete(clientId);
+  
+  // Remove from user drawings
+  userDrawings.delete(clientId);
 }
 
 function startInactivityChecker() {
@@ -955,24 +945,13 @@ function startInactivityChecker() {
     
     // Check each user's last activity
     for (const [clientId, lastActivity] of lastActivityMap.entries()) {
-      // Skip if user is still active
-      if (now - lastActivity <= INACTIVITY_TIMEOUT) continue;
-      
-      // Skip if user doesn't exist anymore
-      if (!room.party.peers[clientId]) continue;
-      
-      // Clean up inactive user
-      cleanupUser(clientId);
+      if (now - lastActivity > INACTIVITY_TIMEOUT) {
+        // Remove inactive user
+        cleanupUser(clientId);
+        
+        // Add system message to chat
+        addMessageToLog('System', `${room.party.peers[clientId]?.username || 'User'} removed due to inactivity`);
+      }
     }
   }, CLEANUP_INTERVAL);
 }
-
-lineColorInput.addEventListener('input', (e) => settings.lineColor = e.target.value);
-lineWidthInput.addEventListener('input', (e) => {
-  settings.lineWidth = e.target.value;
-  lineWidthValue.textContent = e.target.value;
-});
-glowIntensityInput.addEventListener('input', (e) => {
-  settings.glowIntensity = e.target.value;
-  glowIntensityValue.textContent = e.target.value;
-});
